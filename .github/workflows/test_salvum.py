@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Test acceso Salvum desde GitHub Actions
-"""
+"""Test acceso Salvum desde GitHub Actions"""
 import os
 import time
 import json
