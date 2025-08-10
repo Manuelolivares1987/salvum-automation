@@ -1,0 +1,1 @@
+# salvum-automation
