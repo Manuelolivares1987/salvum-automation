@@ -1,0 +1,56 @@
+name: Test Acceso Salvum
+
+on:
+  workflow_dispatch:  # Manual trigger
+  schedule:
+    - cron: '0 15 * * *'  # Diario 3pm UTC (12pm Chile)
+
+jobs:
+  test-salvum-access:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Chrome
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget unzip
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+    
+    - name: Install Python packages
+      run: |
+        pip install selenium webdriver-manager requests
+    
+    - name: Check IP and location
+      run: |
+        echo "🌐 Verificando IP de GitHub Actions..."
+        curl -s ipinfo.io
+        echo ""
+        echo "🔍 Testing conexión a Salvum..."
+        curl -I https://prescriptores.salvum.cl/login || echo "Conexión falló"
+    
+    - name: Test Salvum Access
+      run: python test_salvum.py
+      env:
+        SALVUM_USER: ${{ secrets.SALVUM_USER }}
+        SALVUM_PASS: ${{ secrets.SALVUM_PASS }}
+    
+    - name: Upload results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: salvum-test-results
+        path: |
+          *.log
+          *.png
+          test_results.json
