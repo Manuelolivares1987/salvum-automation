@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-AUTOMATIZACIÓN SALVUM CON MÚLTIPLES PLANILLAS GOOGLE SHEETS
+AUTOMATIZACIÓN SALVUM CON MÚLTIPLES PLANILLAS GOOGLE SHEETS - VERSIÓN MEJORADA
 Procesa clientes de múltiples agentes automáticamente
+Basado en el método de acceso que funcionó exitosamente
 """
 import os
 import time
 import json
 import logging
 import gspread
+import requests
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -47,6 +49,15 @@ class SalvumMultiplePlanillas:
                     agente for agente in config.get('agentes', []) 
                     if agente.get('activo', True)
                 ]
+                
+                # Filtrar por agente específico si se especifica
+                agente_especifico = os.getenv('AGENTE_ESPECIFICO')
+                if agente_especifico:
+                    agentes_activos = [
+                        agente for agente in agentes_activos 
+                        if agente['nombre'].lower() == agente_especifico.lower()
+                    ]
+                    logger.info(f"🎯 Filtrando solo agente: {agente_especifico}")
                 
                 self.agentes_config = agentes_activos
                 logger.info(f"✅ {len(agentes_activos)} agentes configurados desde config.json")
@@ -89,7 +100,11 @@ class SalvumMultiplePlanillas:
                 creds = Credentials.from_service_account_info(creds_dict)
             else:
                 # Archivo local para desarrollo
-                creds = Credentials.from_service_account_file('credentials.json')
+                if os.path.exists('credentials.json'):
+                    creds = Credentials.from_service_account_file('credentials.json')
+                else:
+                    logger.error("❌ No se encontraron credenciales de Google Sheets")
+                    return False
             
             # Scopes necesarios
             scoped_creds = creds.with_scopes([
@@ -238,39 +253,31 @@ class SalvumMultiplePlanillas:
             logger.error(f"❌ Error actualizando estado: {e}")
     
     def configurar_navegador(self):
-        """Configurar navegador optimizado con anti-detección y proxy chileno"""
-        logger.info("🔧 Configurando navegador con proxy chileno...")
+        """Configurar navegador simplificado (basado en el código que funcionó)"""
+        logger.info("🔧 Configurando navegador con método simplificado...")
         
         options = Options()
         
-        # Configuración para GitHub Actions
+        # Configuración básica para GitHub Actions (del código que funcionó)
         if os.getenv('GITHUB_ACTIONS'):
             options.add_argument('--headless')
             options.add_argument('--no-sandbox')
             options.add_argument('--disable-dev-shm-usage')
         
-        # NUEVO: Configurar proxy chileno
-        proxy_chileno = self._obtener_proxy_chileno()
-        if proxy_chileno:
-            options.add_argument(f'--proxy-server={proxy_chileno}')
-            logger.info(f"🇨🇱 Usando proxy chileno: {proxy_chileno}")
-        
-        # Optimizaciones anti-detección (del código que funcionó)
+        # Configuraciones básicas (del código que funcionó)
         options.add_argument('--disable-gpu')
         options.add_argument('--window-size=1920,1080')
-        options.add_argument('--remote-debugging-port=9222')
-        # User agent chileno específico
+        options.add_argument('--disable-extensions')
+        options.add_argument('--disable-plugins')
+        options.add_argument('--disable-images')
+        
+        # User agent simple
         options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-        options.add_argument('--lang=es-CL')
-        options.add_argument('--accept-language=es-CL,es;q=0.9,en;q=0.8')
+        
+        # Configuraciones anti-detección básicas
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
-        
-        # NUEVO: Headers adicionales para simular ubicación chilena
-        options.add_experimental_option("prefs", {
-            "profile.default_content_setting_values.geolocation": 1,
-        })
         
         service = Service(ChromeDriverManager().install())
         self.driver = webdriver.Chrome(service=service, options=options)
@@ -279,523 +286,179 @@ class SalvumMultiplePlanillas:
         self.driver.set_page_load_timeout(30)
         self.wait = WebDriverWait(self.driver, 20)
         
-        # Scripts anti-detección + simulación ubicación chilena
+        # Script anti-detección básico
         self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
-        # NUEVO: Simular geolocalización chilena
-        self.driver.execute_cdp_cmd("Emulation.setGeolocationOverride", {
-            "latitude": -33.4489,  # Santiago, Chile
-            "longitude": -70.6693,
-            "accuracy": 100
-        })
-        
-        # NUEVO: Simular timezone chileno
-        self.driver.execute_cdp_cmd("Emulation.setTimezoneOverride", {
-            "timezoneId": "America/Santiago"
-        })
-        
-        logger.info("✅ Navegador configurado con simulación de ubicación chilena")
+        logger.info("✅ Navegador configurado con método simplificado")
     
-    def _obtener_proxy_chileno(self):
-        """Obtener proxy chileno gratuito"""
-        logger.info("🔍 Buscando proxy chileno...")
+    def verificar_conectividad_basica(self):
+        """Verificar conectividad básica antes del login"""
+        logger.info("🌐 Verificando conectividad básica...")
         
-        # Lista de proxies chilenos gratuitos (actualizados frecuentemente)
-        proxies_chile = [
-            "200.29.109.112:80",
-            "190.110.99.215:999", 
-            "181.78.105.159:999",
-            "200.29.109.112:44749",
-            "190.110.99.168:999",
-        ]
-        
-        for proxy in proxies_chile:
-            if self._verificar_proxy(proxy):
-                logger.info(f"✅ Proxy chileno funcional: {proxy}")
-                return proxy
-        
-        logger.warning("⚠️ No se encontró proxy chileno funcional, continuando sin proxy")
-        return None
-    
-    def _verificar_proxy(self, proxy):
-        """Verificar si un proxy funciona"""
         try:
-            import requests
-            response = requests.get(
-                'https://ipinfo.io/json', 
-                proxies={'http': f'http://{proxy}', 'https': f'http://{proxy}'},
-                timeout=10
-            )
-            
+            # Verificar IP actual
+            response = requests.get('https://ipinfo.io/json', timeout=10)
             if response.status_code == 200:
                 data = response.json()
-                if data.get('country') == 'CL':  # Chile
-                    logger.info(f"✅ Proxy {proxy} es chileno: {data.get('city')}")
-                    return True
-                else:
-                    logger.info(f"⚠️ Proxy {proxy} no es chileno: {data.get('country')}")
-            
+                logger.info(f"📍 IP: {data.get('ip')}")
+                logger.info(f"🏙️ Ciudad: {data.get('city')}")
+                logger.info(f"🏢 País: {data.get('country')}")
+            else:
+                logger.warning("⚠️ No se pudo obtener información de IP")
+                
         except Exception as e:
-            logger.debug(f"❌ Proxy {proxy} falló: {e}")
-        
-        return False
-    
-    def realizar_login(self):
-        """Login robusto en Salvum con bypass geográfico simplificado"""
-        logger.info("🔐 Realizando login en Salvum...")
+            logger.warning(f"⚠️ Error verificando IP: {e}")
         
         try:
-            # Verificar IP inicial
-            logger.info("🌐 Verificando IP de GitHub Actions...")
-            try:
-                import requests
-                ip_info = requests.get('https://ipinfo.io/json', timeout=10).json()
-                logger.info(f"📍 IP: {ip_info.get('ip')}")
-                logger.info(f"🏙️ Ciudad: {ip_info.get('city')}")
-                logger.info(f"🏢 País: {ip_info.get('country')}")
-                
-            except:
-                logger.info("⚠️ No se pudo obtener info de IP")
-            
-            # BYPASS GEOGRÁFICO SIMPLIFICADO
-            logger.info("🇨🇱 Aplicando bypass geográfico simplificado...")
-            
-            # Scripts JavaScript para simular ubicación chilena
-            bypass_script = """
-            // Simular navegador chileno
-            Object.defineProperty(navigator, 'language', { 
-                get: () => 'es-CL',
-                configurable: true 
-            });
-            
-            Object.defineProperty(navigator, 'languages', { 
-                get: () => ['es-CL', 'es', 'en'],
-                configurable: true 
-            });
-            
-            // Simular timezone chileno
-            Date.prototype.getTimezoneOffset = function() { 
-                return 180; // UTC-3 (Chile)
-            };
-            
-            // Interceptar requests para agregar headers
-            const originalFetch = window.fetch;
-            window.fetch = function(...args) {
-                if (args[1]) {
-                    args[1].headers = args[1].headers || {};
-                    args[1].headers['Accept-Language'] = 'es-CL,es;q=0.9,en;q=0.8';
-                }
-                return originalFetch.apply(this, args);
-            };
-            
-            console.log('🇨🇱 Bypass geográfico aplicado');
-            """
-            
-            # Acceder a página de login
-            logger.info("🔗 Accediendo a Salvum...")
-            self.driver.get("https://prescriptores.salvum.cl/login")
-            
-            # Aplicar scripts de bypass después de cargar la página
-            self.driver.execute_script(bypass_script)
-            
-            # Esperar carga completa
-            logger.info("⏳ Esperando carga completa...")
-            time.sleep(15)
-            
-            # Información de la página
-            url = self.driver.current_url
-            titulo = self.driver.title
-            html_size = len(self.driver.page_source)
-            
-            logger.info(f"📍 URL: {url}")
-            logger.info(f"📄 Título: {titulo}")
-            logger.info(f"📊 HTML size: {html_size}")
-            
-            # Screenshot inicial
-            self.driver.save_screenshot('salvum_pagina_inicial.png')
-            logger.info("📸 Screenshot inicial guardado")
-            
-            # Verificar contenido de la página
-            page_source = self.driver.page_source.lower()
-            
-            # Buscar indicadores de bloqueo geográfico
-            bloqueo_indicadores = [
-                'geo', 'country', 'location', 'region', 
-                'not available in your country',
-                'no disponible en tu país',
-                'acceso restringido'
-            ]
-            
-            bloqueos_encontrados = []
-            for indicador in bloqueo_indicadores:
-                if indicador in page_source:
-                    bloqueos_encontrados.append(indicador)
-            
-            if bloqueos_encontrados:
-                logger.warning(f"⚠️ Posibles indicadores de bloqueo: {', '.join(bloqueos_encontrados)}")
-            
-            # Verificar tipo de página
-            if "bbva" in titulo.lower():
-                logger.error("❌ BLOQUEADO - Redirigido a BBVA")
-                return False
-            elif html_size < 5000:
-                logger.error("❌ BLOQUEADO - Página muy pequeña")
-                return False
-            elif "salvum" in page_source or "usuario" in page_source or "login" in page_source:
-                logger.info("✅ ACCESO EXITOSO - Página de Salvum detectada!")
-                
-                # Llamar método de login mejorado
-                return self._realizar_login_mejorado()
+            # Test de conectividad a Salvum
+            response = requests.head('https://prescriptores.salvum.cl/login', timeout=10)
+            if response.status_code == 200:
+                logger.info("✅ Conectividad a Salvum: OK")
+                return True
             else:
-                logger.warning("❓ Estado desconocido de página")
-                
-                # Guardar HTML para debug
-                with open('pagina_debug.html', 'w', encoding='utf-8') as f:
-                    f.write(self.driver.page_source)
-                logger.info("💾 HTML guardado en pagina_debug.html para análisis")
-                
-                return False
+                logger.warning(f"⚠️ Salvum responde con código: {response.status_code}")
+                return True  # Continuar de todas formas
                 
         except Exception as e:
-            logger.error(f"❌ Error general en login: {e}")
-            
-            # Guardar screenshot de error
-            try:
-                self.driver.save_screenshot('error_login.png')
-                logger.info("📸 Screenshot de error guardado")
-            except:
-                pass
-                
+            logger.error(f"❌ Error conectando a Salvum: {e}")
             return False
     
-    def _configurar_headers_chilenos(self):
-        """Configurar headers para simular acceso desde Chile"""
-        logger.info("🇨🇱 Configurando headers chilenos...")
+    def realizar_login(self):
+        """Login simplificado basado en el método que funcionó"""
+        logger.info("🔐 Realizando login simplificado en Salvum...")
         
         try:
-            # Configurar headers adicionales vía CDP
-            self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-                "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "acceptLanguage": "es-CL,es;q=0.9,en;q=0.8",
-                "platform": "Win32"
-            })
+            # Verificar conectividad primero
+            if not self.verificar_conectividad_basica():
+                logger.error("❌ Falla conectividad básica")
+                return False
             
-            # Configurar headers de geolocalización
-            self.driver.execute_cdp_cmd('Network.enable')
-            self.driver.execute_cdp_cmd('Network.setRequestInterception', {'patterns': [{'urlPattern': '*'}]})
+            # Obtener credenciales (sin hardcodear)
+            usuario = os.getenv('SALVUM_USER')
+            password = os.getenv('SALVUM_PASS')
             
-            logger.info("✅ Headers chilenos configurados")
-            
-        except Exception as e:
-            logger.warning(f"⚠️ No se pudieron configurar headers: {e}")
-    
-    def _aplicar_simulacion_chilena(self):
-        """Aplicar simulación adicional para parecer acceso chileno"""
-        logger.info("🇨🇱 Aplicando simulación chilena adicional...")
-        
-        try:
-            # Simular conexión desde Chile
-            script_simulacion = """
-            // Simular información de conexión chilena
-            Object.defineProperty(navigator, 'connection', {
-                get: () => ({
-                    downlink: 10,
-                    effectiveType: '4g',
-                    rtt: 100,
-                    saveData: false
-                })
-            });
-            
-            // Simular timezone chileno
-            Intl.DateTimeFormat = function() {
-                return {
-                    resolvedOptions: () => ({
-                        timeZone: 'America/Santiago',
-                        locale: 'es-CL'
-                    })
-                };
-            };
-            
-            // Simular idioma chileno
-            Object.defineProperty(navigator, 'language', {
-                get: () => 'es-CL'
-            });
-            
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['es-CL', 'es', 'en']
-            });
-            """
-            
-            self.driver.execute_script(script_simulacion)
-            logger.info("✅ Simulación chilena aplicada")
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Error en simulación: {e}")
-    
-    def _realizar_login_mejorado(self):
-        """Método de login con diagnóstico avanzado de errores"""
-        logger.info("🔑 INICIANDO PROCESO DE LOGIN MEJORADO")
-        logger.info("-" * 50)
-        
-        try:
-            # Obtener credenciales
-            usuario = os.getenv('SALVUM_USER', 'Molivaco')
-            password = os.getenv('SALVUM_PASS', 'd6r4YaXN')
-            
-            logger.info(f"👤 Usuario: {usuario}")  # Mostrar usuario real para debug
-            logger.info("🔒 Password: [PROTEGIDO]")
-            
-            # Verificar que las credenciales no estén vacías
             if not usuario or not password:
-                logger.error("❌ Credenciales vacías!")
-                logger.error(f"Usuario válido: {bool(usuario)}")
-                logger.error(f"Password válido: {bool(password)}")
+                logger.error("❌ Credenciales no configuradas en variables de entorno")
+                logger.error(f"SALVUM_USER: {'SET' if usuario else 'NOT SET'}")
+                logger.error(f"SALVUM_PASS: {'SET' if password else 'NOT SET'}")
                 return False
             
-            # MÉTODO 1: Selectores específicos mejorados (del código que funcionó)
-            logger.info("🔍 Método 1: Buscando campos con selectores específicos...")
+            logger.info(f"👤 Usuario: {usuario}")
+            logger.info("🔒 Password: [CONFIGURADO]")
             
+            # Acceder a la página de login
+            logger.info("🔗 Accediendo a página de login...")
+            self.driver.get("https://prescriptores.salvum.cl/login")
+            time.sleep(5)  # Espera más corta
+            
+            # Screenshot inicial
+            self.driver.save_screenshot('login_inicial.png')
+            logger.info("📸 Screenshot inicial guardado")
+            
+            # Verificar que llegamos a la página correcta
+            url_actual = self.driver.current_url
+            titulo = self.driver.title
+            
+            logger.info(f"📍 URL: {url_actual}")
+            logger.info(f"📄 Título: {titulo}")
+            
+            # Buscar campos de login (método simple que funcionó)
+            logger.info("🔍 Buscando campos de login...")
+            
+            # Campo usuario (método directo)
             campo_usuario = None
-            campo_password = None
-            
-            # Intentar múltiples selectores para usuario (del código que funcionó)
-            selectores_usuario = [
-                "input[type='text']",
-                "input[name*='user']",
-                "input[name*='usuario']", 
-                "input[id*='user']",
-                "input[id*='usuario']",
-                "input[placeholder*='Usuario']",
-                "input[placeholder*='usuario']"
-            ]
-            
-            for selector in selectores_usuario:
-                try:
-                    campos = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    for campo in campos:
-                        if campo.is_displayed() and campo.is_enabled():
-                            campo_usuario = campo
-                            logger.info(f"✅ Campo usuario encontrado con: {selector}")
-                            break
-                    if campo_usuario:
-                        break
-                except:
-                    continue
-            
-            # Buscar campo password
             try:
-                campo_password = self.wait.until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='password']"))
-                )
-                logger.info("✅ Campo password encontrado")
-            except:
-                logger.error("❌ No se encontró campo password")
-                return False
+                # Intentar por tipo texto primero
+                campos_texto = self.driver.find_elements(By.CSS_SELECTOR, "input[type='text']")
+                for campo in campos_texto:
+                    if campo.is_displayed() and campo.is_enabled():
+                        campo_usuario = campo
+                        break
+                        
+                if not campo_usuario:
+                    # Backup: cualquier input visible que no sea password
+                    inputs = self.driver.find_elements(By.TAG_NAME, "input")
+                    for inp in inputs:
+                        if (inp.is_displayed() and inp.is_enabled() and 
+                            inp.get_attribute('type') != 'password'):
+                            campo_usuario = inp
+                            break
+                            
+            except Exception as e:
+                logger.error(f"Error buscando campo usuario: {e}")
             
-            # MÉTODO 2: Si no encontró usuario, usar posición (del código que funcionó)
-            if not campo_usuario:
-                logger.info("🔍 Método 2: Buscando por posición...")
-                try:
-                    inputs_visibles = []
-                    todos_inputs = self.driver.find_elements(By.TAG_NAME, "input")
-                    
-                    for inp in todos_inputs:
-                        if inp.is_displayed() and inp.is_enabled():
-                            tipo = inp.get_attribute('type') or 'text'
-                            if tipo != 'password':
-                                inputs_visibles.append(inp)
-                    
-                    if inputs_visibles:
-                        campo_usuario = inputs_visibles[0]
-                        logger.info("✅ Campo usuario por posición")
-                except Exception as e:
-                    logger.error(f"Error buscando por posición: {e}")
-                    return False
+            # Campo password
+            campo_password = None
+            try:
+                campo_password = self.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+            except Exception as e:
+                logger.error(f"Error buscando campo password: {e}")
             
             if not campo_usuario or not campo_password:
-                logger.error("❌ No se encontraron ambos campos")
+                logger.error("❌ No se encontraron campos de login")
+                self.driver.save_screenshot('campos_no_encontrados.png')
                 return False
             
-            # LLENAR CAMPOS CON MÉTODO MEJORADO (del código que funcionó)
-            logger.info("✏️ Llenando campos con método mejorado...")
+            logger.info("✅ Campos de login encontrados")
             
-            # Scroll y focus en usuario
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", campo_usuario)
-            time.sleep(2)
-            self.driver.execute_script("arguments[0].focus();", campo_usuario)
-            time.sleep(1)
+            # Llenar campos (método simple)
+            logger.info("✏️ Llenando campos...")
             
-            # Limpiar y llenar usuario
+            # Usuario
             campo_usuario.clear()
-            time.sleep(1)
             campo_usuario.send_keys(usuario)
-            logger.info("✅ Usuario ingresado")
             time.sleep(2)
             
-            # Verificar que el usuario se ingresó correctamente
-            valor_usuario = campo_usuario.get_attribute('value')
-            logger.info(f"🔍 Valor en campo usuario: '{valor_usuario}'")
-            
-            # Focus en password
-            self.driver.execute_script("arguments[0].focus();", campo_password)
-            time.sleep(1)
-            
-            # Limpiar y llenar password
+            # Password
             campo_password.clear()
-            time.sleep(1)
             campo_password.send_keys(password)
-            logger.info("✅ Password ingresado")
             time.sleep(2)
             
-            # Verificar que el password se ingresó correctamente (sin mostrar valor)
-            valor_password_length = len(campo_password.get_attribute('value'))
-            logger.info(f"🔍 Longitud password ingresado: {valor_password_length} caracteres")
+            logger.info("✅ Campos llenados")
             
             # Screenshot antes de submit
-            self.driver.save_screenshot('salvum_antes_submit.png')
-            logger.info("📸 Screenshot antes de submit")
+            self.driver.save_screenshot('antes_submit.png')
             
-            # BUSCAR Y HACER CLICK EN BOTÓN (del código que funcionó)
-            logger.info("🔘 Buscando botón de submit...")
+            # Submit (método simple)
+            logger.info("🔘 Enviando formulario...")
             
-            boton_submit = None
-            
-            # Método 1: Por tipo submit
+            # Intentar click en botón submit
             try:
-                boton_submit = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit'], input[type='submit']")
-                logger.info("✅ Botón submit encontrado por tipo")
+                boton = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit'], input[type='submit']")
+                boton.click()
+                logger.info("✅ Click en botón submit")
             except:
-                pass
-            
-            # Método 2: Por texto
-            if not boton_submit:
-                try:
-                    boton_submit = self.driver.find_element(By.XPATH, "//button[contains(text(), 'INGRESAR') or contains(text(), 'Ingresar') or contains(text(), 'LOGIN')]")
-                    logger.info("✅ Botón submit encontrado por texto")
-                except:
-                    pass
-            
-            # Método 3: Primer botón disponible
-            if not boton_submit:
-                try:
-                    botones = self.driver.find_elements(By.TAG_NAME, "button")
-                    for btn in botones:
-                        if btn.is_displayed() and btn.is_enabled():
-                            boton_submit = btn
-                            logger.info("✅ Usando primer botón disponible")
-                            break
-                except:
-                    pass
-            
-            # EJECUTAR SUBMIT (del código que funcionó)
-            if boton_submit:
-                try:
-                    # Scroll al botón
-                    self.driver.execute_script("arguments[0].scrollIntoView(true);", boton_submit)
-                    time.sleep(2)
-                    
-                    # Click con JavaScript como backup
-                    try:
-                        boton_submit.click()
-                        logger.info("🔘 Click normal ejecutado")
-                    except:
-                        self.driver.execute_script("arguments[0].click();", boton_submit)
-                        logger.info("🔘 Click con JavaScript ejecutado")
-                        
-                except Exception as e:
-                    logger.error(f"Error en click: {e}")
-                    # Último recurso: Enter en password
-                    campo_password.send_keys(Keys.RETURN)
-                    logger.info("⌨️ Enter enviado como último recurso")
-            else:
-                # No hay botón, usar Enter
+                # Backup: Enter en campo password
                 campo_password.send_keys(Keys.RETURN)
-                logger.info("⌨️ Enter enviado (no se encontró botón)")
+                logger.info("✅ Enter enviado en password")
             
-            # ESPERAR RESPUESTA (del código que funcionó)
-            logger.info("⏳ Esperando respuesta del servidor...")
-            time.sleep(12)  # Espera más larga como en el código que funcionó
+            # Esperar respuesta
+            logger.info("⏳ Esperando respuesta...")
+            time.sleep(8)  # Tiempo del código que funcionó
             
-            # Screenshot después de submit
-            self.driver.save_screenshot('salvum_despues_submit.png')
-            logger.info("📸 Screenshot después de submit")
+            # Screenshot después
+            self.driver.save_screenshot('despues_submit.png')
             
-            # VERIFICAR RESULTADO CON DIAGNÓSTICO AVANZADO
+            # Verificar resultado
             nueva_url = self.driver.current_url
-            nuevo_titulo = self.driver.title
-            
             logger.info(f"📍 Nueva URL: {nueva_url}")
-            logger.info(f"📄 Nuevo título: {nuevo_titulo}")
             
-            # NUEVO: Analizar mensajes de error específicos
-            page_text = self.driver.page_source.lower()
-            
-            # Buscar mensajes de error específicos
-            errores_comunes = [
-                'credenciales incorrectas',
-                'usuario no válido', 
-                'contraseña incorrecta',
-                'acceso denegado',
-                'error de autenticación',
-                'invalid credentials',
-                'login failed',
-                'access denied',
-                'ubicación no autorizada',
-                'país no permitido',
-                'geo-blocked',
-                'region blocked'
-            ]
-            
-            errores_encontrados = []
-            for error in errores_comunes:
-                if error in page_text:
-                    errores_encontrados.append(error)
-            
-            if errores_encontrados:
-                logger.error(f"❌ Errores específicos detectados: {', '.join(errores_encontrados)}")
-            
-            # Buscar elementos de error en la página
-            try:
-                elementos_error = self.driver.find_elements(By.CSS_SELECTOR, 
-                    ".error, .alert-danger, .text-danger, [class*='error'], [class*='danger']")
-                
-                for elemento in elementos_error:
-                    if elemento.is_displayed():
-                        texto_error = elemento.text.strip()
-                        if texto_error:
-                            logger.error(f"🚨 Mensaje de error en página: '{texto_error}'")
-            except:
-                pass
-            
-            # Verificar elementos que indican login exitoso
-            elementos_success = []
-            try:
-                posibles_success = self.driver.find_elements(By.CSS_SELECTOR, 
-                    ".dashboard, nav, .menu, .logout, [href*='logout'], [class*='dashboard'], [class*='menu']")
-                elementos_success = [el for el in posibles_success if el.is_displayed()]
-            except:
-                pass
-            
-            # Determinar éxito del login (del código que funcionó)
+            # Verificar éxito (método simple)
             if nueva_url != "https://prescriptores.salvum.cl/login" and "login" not in nueva_url.lower():
-                logger.info("🎉 ¡LOGIN EXITOSO! - URL cambió")
-                
-                if elementos_success:
-                    logger.info(f"✅ {len(elementos_success)} elementos post-login encontrados")
-                
+                logger.info("🎉 ¡LOGIN EXITOSO!")
                 return True
             else:
                 logger.error("❌ Login falló - permanece en página de login")
                 
-                # Guardar HTML completo para análisis
-                with open('salvum_error_page.html', 'w', encoding='utf-8') as f:
+                # Guardar página de error para diagnóstico
+                with open('error_login.html', 'w', encoding='utf-8') as f:
                     f.write(self.driver.page_source)
-                logger.info("💾 Página de error guardada en salvum_error_page.html")
                 
                 return False
                 
         except Exception as e:
-            logger.error(f"❌ Error en proceso de login: {e}")
+            logger.error(f"❌ Error en login: {e}")
+            self.driver.save_screenshot('error_excepcion.png')
             return False
     
     def procesar_cliente_individual(self, cliente_data):
@@ -1057,6 +720,12 @@ class SalvumMultiplePlanillas:
         
         total_clientes = len(todos_los_clientes)
         logger.info(f"📊 Total clientes a procesar: {total_clientes}")
+        
+        # Verificar si estamos en modo test
+        test_mode = os.getenv('TEST_MODE', 'false').lower() == 'true'
+        if test_mode:
+            logger.info("🧪 MODO TEST: No se procesarán clientes reales")
+            return True
         
         # Procesar cada cliente
         for idx, cliente in enumerate(todos_los_clientes, 1):
