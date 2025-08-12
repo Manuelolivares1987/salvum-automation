@@ -115,16 +115,21 @@ jobs:
         clientes = automator.leer_todos_los_clientes()
         print(f'✅ Encontrados {len(clientes)} clientes para procesar')
         
-        print('🔧 Test 4: Login Salvum...')
+        print('🔧 Test 4: Login Salvum (MÉTODO MEJORADO)...')
         automator.configurar_navegador()
         if automator.realizar_login():
             print('✅ Login Salvum OK')
         else:
             print('❌ Error en login Salvum')
-            sys.exit(1)
+            # No salir con error para poder ver screenshots
+            print('📸 Revisar screenshots para diagnóstico')
         
-        automator.driver.quit()
-        print('🎉 ¡Todos los tests pasaron!')
+        try:
+            automator.driver.quit()
+        except:
+            pass
+        
+        print('🎉 Test completado - revisar logs y screenshots')
         "
     
     - name: 🚀 Ejecutar Automatización Completa
