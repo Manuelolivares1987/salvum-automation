@@ -1,5 +1,5 @@
 # .github/workflows/salvum-automation.yml
-name: 🏠 Salvum Credit Automation
+name: 🏠 Salvum Múltiples Planillas
 
 on:
   # Ejecutar manualmente
@@ -9,6 +9,15 @@ on:
         description: 'Modo de prueba (solo login)'
         required: false
         default: 'false'
+        type: boolean
+      agente_especifico:
+        description: 'Procesar solo un agente específico (opcional)'
+        required: false
+        type: string
+      modo_debug:
+        description: 'Activar modo debug con screenshots'
+        required: false
+        default: false
         type: boolean
   
   # Ejecutar automáticamente cada hora de 9 AM a 6 PM (Chile)
@@ -24,8 +33,10 @@ jobs:
       SALVUM_USER: ${{ secrets.SALVUM_USER }}
       SALVUM_PASS: ${{ secrets.SALVUM_PASS }}
       GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-      GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
       GITHUB_ACTIONS: true
+      TEST_MODE: ${{ github.event.inputs.test_mode }}
+      DEBUG_MODE: ${{ github.event.inputs.modo_debug }}
+      AGENTE_ESPECIFICO: ${{ github.event.inputs.agente_especifico }}
     
     steps:
     - name: 📥 Checkout código
@@ -56,15 +67,65 @@ jobs:
     - name: 🌐 Verificar conectividad
       run: |
         echo "🌍 Verificando IP y conectividad..."
-        curl -s https://ipinfo.io/json | jq .
+        curl -s https://ipinfo.io/json | jq '.' || echo "No se pudo obtener info de IP"
         echo "🔗 Probando acceso a Salvum..."
         curl -I https://prescriptores.salvum.cl/login || echo "❌ No se puede acceder a Salvum"
+    
+    - name: 📊 Verificar configuración
+      run: |
+        echo "🔍 Verificando archivos de configuración..."
+        
+        if [ -f "config.json" ]; then
+          echo "✅ config.json encontrado"
+          cat config.json | jq '.' || echo "❌ config.json tiene formato inválido"
+        else
+          echo "❌ config.json NO encontrado"
+        fi
+        
+        echo "🔐 Verificando variables de entorno..."
+        echo "SALVUM_USER: ${SALVUM_USER:+SET}" 
+        echo "SALVUM_PASS: ${SALVUM_PASS:+SET}"
+        echo "GOOGLE_SHEETS_CREDENTIALS: ${GOOGLE_SHEETS_CREDENTIALS:+SET}"
     
     - name: 🧪 Test de Login (si está en modo prueba)
       if: ${{ github.event.inputs.test_mode == 'true' }}
       run: |
         echo "🧪 Ejecutando test de login únicamente..."
-        python test_salvum_login.py
+        python -c "
+        import os, sys, json
+        from salvum_automation import SalvumMultiplePlanillas
+        
+        automator = SalvumMultiplePlanillas()
+        
+        print('🔧 Test 1: Configuración de agentes...')
+        if automator.cargar_configuracion_agentes():
+            print('✅ Configuración de agentes OK')
+        else:
+            print('❌ Error en configuración de agentes')
+            sys.exit(1)
+        
+        print('🔧 Test 2: Google Sheets...')
+        if automator.configurar_google_sheets():
+            print('✅ Google Sheets OK')
+        else:
+            print('❌ Error en Google Sheets')
+            sys.exit(1)
+        
+        print('🔧 Test 3: Leer planillas...')
+        clientes = automator.leer_todos_los_clientes()
+        print(f'✅ Encontrados {len(clientes)} clientes para procesar')
+        
+        print('🔧 Test 4: Login Salvum...')
+        automator.configurar_navegador()
+        if automator.realizar_login():
+            print('✅ Login Salvum OK')
+        else:
+            print('❌ Error en login Salvum')
+            sys.exit(1)
+        
+        automator.driver.quit()
+        print('🎉 ¡Todos los tests pasaron!')
+        "
     
     - name: 🚀 Ejecutar Automatización Completa
       if: ${{ github.event.inputs.test_mode != 'true' }}
@@ -72,6 +133,39 @@ jobs:
         echo "🚀 Ejecutando automatización completa..."
         python salvum_automation.py
       timeout-minutes: 60
+    
+    - name: 📊 Procesar agente específico
+      if: ${{ github.event.inputs.agente_especifico != '' && github.event.inputs.test_mode != 'true' }}
+      run: |
+        echo "🎯 Procesando agente específico: ${{ github.event.inputs.agente_especifico }}"
+        python -c "
+        from salvum_automation import SalvumMultiplePlanillas
+        import os
+        
+        automator = SalvumMultiplePlanillas()
+        
+        # Filtrar solo el agente específico
+        if automator.cargar_configuracion_agentes():
+            agente_target = '${{ github.event.inputs.agente_especifico }}'
+            automator.agentes_config = [
+                agente for agente in automator.agentes_config 
+                if agente_target.lower() in agente['nombre'].lower()
+            ]
+            
+            if automator.agentes_config:
+                print(f'🎯 Procesando solo: {automator.agentes_config[0][\"nombre\"]}')
+                automator.ejecutar_automatizacion_completa()
+            else:
+                print(f'❌ No se encontró agente: {agente_target}')
+        "
+    
+    - name: 📸 Capturar screenshots en caso de error
+      if: failure()
+      run: |
+        echo "📸 Capturando información de debug..."
+        find . -name "*.png" -type f | head -10 | while read file; do
+          echo "📷 Screenshot encontrado: $file"
+        done
     
     - name: 📊 Subir resultados
       uses: actions/upload-artifact@v3
@@ -82,71 +176,38 @@ jobs:
           *.png
           *.json
           *.log
+          reporte_*.json
         retention-days: 7
     
-    - name: 📧 Notificar resultados (opcional)
+    - name: 📋 Resumen final
+      if: always()
+      run: |
+        echo "📋 RESUMEN DE EJECUCIÓN"
+        echo "======================"
+        echo "🕐 Timestamp: $(date)"
+        echo "🔧 Modo test: ${{ github.event.inputs.test_mode }}"
+        echo "🐛 Modo debug: ${{ github.event.inputs.modo_debug }}"
+        echo "👥 Agente específico: ${{ github.event.inputs.agente_especifico }}"
+        
+        if [ -f "reporte_multiple_planillas.json" ]; then
+          echo "📊 Reporte generado:"
+          cat reporte_multiple_planillas.json | jq -r '.tasa_exito // "N/A"' | xargs -I {} echo "   Tasa éxito: {}"
+          cat reporte_multiple_planillas.json | jq -r '.total_clientes // 0' | xargs -I {} echo "   Total clientes: {}"
+          cat reporte_multiple_planillas.json | jq -r '.exitosos // 0' | xargs -I {} echo "   Exitosos: {}"
+          cat reporte_multiple_planillas.json | jq -r '.fallidos // 0' | xargs -I {} echo "   Fallidos: {}"
+        else
+          echo "📊 No se generó reporte"
+        fi
+        
+        echo "======================"
+    
+    - name: 📧 Notificar en caso de fallo (opcional)
       if: failure()
       run: |
-        echo "❌ La automatización falló. Revisar logs y artifacts."
-        # Aquí podrías agregar notificación por Slack, email, etc.
-
----
-
-# .github/workflows/manual-trigger.yml
-name: 🎯 Manual Salvum Trigger
-
-on:
-  workflow_dispatch:
-    inputs:
-      cliente_especifico:
-        description: 'RUT del cliente específico (opcional)'
-        required: false
-        type: string
-      modo_debug:
-        description: 'Activar modo debug con screenshots'
-        required: false
-        default: false
-        type: boolean
-
-jobs:
-  manual-execution:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: 📥 Checkout
-      uses: actions/checkout@v4
-    
-    - name: 🐍 Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-    
-    - name: 📦 Instalar dependencias
-      run: |
-        pip install selenium webdriver-manager pandas gspread google-auth requests
-    
-    - name: 🎯 Ejecutar procesamiento manual
-      env:
-        SALVUM_USER: ${{ secrets.SALVUM_USER }}
-        SALVUM_PASS: ${{ secrets.SALVUM_PASS }}
-        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-        GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-        TARGET_RUT: ${{ github.event.inputs.cliente_especifico }}
-        DEBUG_MODE: ${{ github.event.inputs.modo_debug }}
-      run: |
-        if [ -n "$TARGET_RUT" ]; then
-          echo "🎯 Procesando cliente específico: $TARGET_RUT"
-          python salvum_automation.py --rut="$TARGET_RUT"
-        else
-          echo "🚀 Procesando todos los clientes pendientes"
-          python salvum_automation.py
-        fi
-    
-    - name: 📤 Subir resultados
-      uses: actions/upload-artifact@v3
-      with:
-        name: manual-execution-${{ github.run_number }}
-        path: |
-          *.png
-          *.json
-          *.log
+        echo "❌ La automatización falló. Información disponible en artifacts."
+        echo "🔍 Revisar logs detallados y screenshots para diagnosticar el problema."
+        echo "💡 Posibles causas:"
+        echo "   - Problemas de conectividad con Salvum"
+        echo "   - Cambios en la interfaz de Salvum"
+        echo "   - Errores en credenciales"
+        echo "   - Problemas con Google Sheets"
