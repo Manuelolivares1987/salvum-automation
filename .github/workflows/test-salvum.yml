@@ -64,12 +64,29 @@ jobs:
         # Verificar versión
         google-chrome --version
     
-    - name: 🌐 Verificar conectividad
+    - name: 🇨🇱 Configurar VPN Cloudflare WARP
       run: |
-        echo "🌍 Verificando IP y conectividad..."
-        curl -s https://ipinfo.io/json | jq '.' || echo "No se pudo obtener info de IP"
-        echo "🔗 Probando acceso a Salvum..."
-        curl -I https://prescriptores.salvum.cl/login || echo "❌ No se puede acceder a Salvum"
+        echo "🌐 Instalando Cloudflare WARP para IP chilena..."
+        
+        # Instalar Cloudflare WARP
+        curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+        sudo apt-get update
+        sudo apt-get install -y cloudflare-warp
+        
+        # Configurar WARP
+        warp-cli register
+        warp-cli set-mode warp
+        warp-cli connect
+        
+        # Esperar conexión
+        sleep 10
+        
+        # Verificar nueva IP
+        echo "🔍 Verificando nueva IP..."
+        curl -s https://ipinfo.io/json | jq '.'
+        
+        echo "✅ VPN configurada"
     
     - name: 📊 Verificar configuración
       run: |
