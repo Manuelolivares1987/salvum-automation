@@ -1,0 +1,19 @@
+{
+  "agentes": [
+    {
+      "nombre": "Agente 1",
+      "sheet_id": "1T4_SynKEAJZFDDg6C7-Fuy7EitOi5IJXX1Z7MMkxoYQ",
+      "activo": true
+    },
+    {
+      "nombre": "Agente 2",
+      "sheet_id": "1MAnEHkxJCbB3NcAGAzVa8iaphbIonDO8DtrYTAM3lbk",
+      "activo": true
+    },
+    {
+      "nombre": "Agente 3", 
+      "sheet_id": "18yI5LgYntMZ758xN-3lj2jEwgwZaPTha4UJzzcWxIOU",
+      "activo": true
+    }
+  ]
+}
