@@ -341,66 +341,11 @@ class SalvumMultiplePlanillas:
         return False
     
     def realizar_login(self):
-        """Login robusto en Salvum con bypass geográfico agresivo"""
+        """Login robusto en Salvum con bypass geográfico simplificado"""
         logger.info("🔐 Realizando login en Salvum...")
         
         try:
-            # NUEVO: Bypass geográfico más agresivo
-            logger.info("🇨🇱 Aplicando bypass geográfico avanzado...")
-            
-            # Interceptar y modificar todas las requests
-            self.driver.execute_cdp_cmd('Network.enable')
-            self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-                "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "acceptLanguage": "es-CL,es;q=0.9",
-                "platform": "Win32"
-            })
-            
-            # Simular headers de request chilenos
-            self.driver.execute_cdp_cmd('Network.setRequestInterception', {
-                'patterns': [{'urlPattern': '*'}]
-            })
-            
-            # Script para interceptar y modificar requests
-            bypass_script = """
-            // Interceptar XHR y Fetch para agregar headers chilenos
-            const originalFetch = window.fetch;
-            window.fetch = function(...args) {
-                if (args[1]) {
-                    args[1].headers = args[1].headers || {};
-                    args[1].headers['CF-IPCountry'] = 'CL';
-                    args[1].headers['X-Forwarded-For'] = '200.29.109.112';
-                    args[1].headers['X-Real-IP'] = '200.29.109.112';
-                    args[1].headers['Accept-Language'] = 'es-CL,es;q=0.9,en;q=0.8';
-                }
-                return originalFetch.apply(this, args);
-            };
-            
-            const originalXHR = XMLHttpRequest.prototype.open;
-            XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
-                originalXHR.apply(this, arguments);
-                this.setRequestHeader('CF-IPCountry', 'CL');
-                this.setRequestHeader('X-Forwarded-For', '200.29.109.112');
-                this.setRequestHeader('Accept-Language', 'es-CL,es;q=0.9,en;q=0.8');
-            };
-            
-            // Simular timezone y ubicación chilena
-            Object.defineProperty(navigator, 'language', { get: () => 'es-CL' });
-            Object.defineProperty(navigator, 'languages', { get: () => ['es-CL', 'es', 'en'] });
-            
-            // Override Date para timezone chileno
-            const originalDate = Date;
-            Date = function(...args) {
-                const date = new originalDate(...args);
-                date.getTimezoneOffset = () => 180; // UTC-3 (Chile)
-                return date;
-            };
-            Date.prototype = originalDate.prototype;
-            """
-            
-            self.driver.execute_script(bypass_script)
-            
-            # Verificar IP (del código que funcionó)
+            # Verificar IP inicial
             logger.info("🌐 Verificando IP de GitHub Actions...")
             try:
                 import requests
@@ -412,11 +357,48 @@ class SalvumMultiplePlanillas:
             except:
                 logger.info("⚠️ No se pudo obtener info de IP")
             
-            # Acceder a página de login con headers modificados
-            logger.info("🔗 Accediendo a Salvum con bypass geográfico...")
+            # BYPASS GEOGRÁFICO SIMPLIFICADO
+            logger.info("🇨🇱 Aplicando bypass geográfico simplificado...")
+            
+            # Scripts JavaScript para simular ubicación chilena
+            bypass_script = """
+            // Simular navegador chileno
+            Object.defineProperty(navigator, 'language', { 
+                get: () => 'es-CL',
+                configurable: true 
+            });
+            
+            Object.defineProperty(navigator, 'languages', { 
+                get: () => ['es-CL', 'es', 'en'],
+                configurable: true 
+            });
+            
+            // Simular timezone chileno
+            Date.prototype.getTimezoneOffset = function() { 
+                return 180; // UTC-3 (Chile)
+            };
+            
+            // Interceptar requests para agregar headers
+            const originalFetch = window.fetch;
+            window.fetch = function(...args) {
+                if (args[1]) {
+                    args[1].headers = args[1].headers || {};
+                    args[1].headers['Accept-Language'] = 'es-CL,es;q=0.9,en;q=0.8';
+                }
+                return originalFetch.apply(this, args);
+            };
+            
+            console.log('🇨🇱 Bypass geográfico aplicado');
+            """
+            
+            # Acceder a página de login
+            logger.info("🔗 Accediendo a Salvum...")
             self.driver.get("https://prescriptores.salvum.cl/login")
             
-            # Esperar carga completa (del código que funcionó)
+            # Aplicar scripts de bypass después de cargar la página
+            self.driver.execute_script(bypass_script)
+            
+            # Esperar carga completa
             logger.info("⏳ Esperando carga completa...")
             time.sleep(15)
             
@@ -433,13 +415,26 @@ class SalvumMultiplePlanillas:
             self.driver.save_screenshot('salvum_pagina_inicial.png')
             logger.info("📸 Screenshot inicial guardado")
             
-            # Verificar si llegamos a la página correcta
+            # Verificar contenido de la página
             page_source = self.driver.page_source.lower()
             
-            # NUEVO: Verificar contenido específico para diagnosticar bloqueo
-            if "geo" in page_source or "location" in page_source or "country" in page_source:
-                logger.warning("⚠️ Posible bloqueo geográfico detectado en contenido")
+            # Buscar indicadores de bloqueo geográfico
+            bloqueo_indicadores = [
+                'geo', 'country', 'location', 'region', 
+                'not available in your country',
+                'no disponible en tu país',
+                'acceso restringido'
+            ]
             
+            bloqueos_encontrados = []
+            for indicador in bloqueo_indicadores:
+                if indicador in page_source:
+                    bloqueos_encontrados.append(indicador)
+            
+            if bloqueos_encontrados:
+                logger.warning(f"⚠️ Posibles indicadores de bloqueo: {', '.join(bloqueos_encontrados)}")
+            
+            # Verificar tipo de página
             if "bbva" in titulo.lower():
                 logger.error("❌ BLOQUEADO - Redirigido a BBVA")
                 return False
@@ -453,14 +448,24 @@ class SalvumMultiplePlanillas:
                 return self._realizar_login_mejorado()
             else:
                 logger.warning("❓ Estado desconocido de página")
+                
                 # Guardar HTML para debug
                 with open('pagina_debug.html', 'w', encoding='utf-8') as f:
                     f.write(self.driver.page_source)
                 logger.info("💾 HTML guardado en pagina_debug.html para análisis")
+                
                 return False
                 
         except Exception as e:
             logger.error(f"❌ Error general en login: {e}")
+            
+            # Guardar screenshot de error
+            try:
+                self.driver.save_screenshot('error_login.png')
+                logger.info("📸 Screenshot de error guardado")
+            except:
+                pass
+                
             return False
     
     def _configurar_headers_chilenos(self):
