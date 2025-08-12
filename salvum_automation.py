@@ -238,8 +238,8 @@ class SalvumMultiplePlanillas:
             logger.error(f"❌ Error actualizando estado: {e}")
     
     def configurar_navegador(self):
-        """Configurar navegador optimizado con anti-detección"""
-        logger.info("🔧 Configurando navegador...")
+        """Configurar navegador optimizado con anti-detección y proxy chileno"""
+        logger.info("🔧 Configurando navegador con proxy chileno...")
         
         options = Options()
         
@@ -249,14 +249,25 @@ class SalvumMultiplePlanillas:
             options.add_argument('--no-sandbox')
             options.add_argument('--disable-dev-shm-usage')
         
+        # NUEVO: Configurar proxy chileno
+        proxy_chileno = self._obtener_proxy_chileno()
+        if proxy_chileno:
+            options.add_argument(f'--proxy-server={proxy_chileno}')
+            logger.info(f"🇨🇱 Usando proxy chileno: {proxy_chileno}")
+        
         # Optimizaciones anti-detección (del código que funcionó)
         options.add_argument('--disable-gpu')
         options.add_argument('--window-size=1920,1080')
-        options.add_argument('--remote-debugging-port=9222')  # NUEVO: del código que funcionó
+        options.add_argument('--remote-debugging-port=9222')
         options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36')
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
+        
+        # NUEVO: Headers adicionales para simular ubicación chilena
+        options.add_experimental_option("prefs", {
+            "profile.default_content_setting_values.geolocation": 1,
+        })
         
         service = Service(ChromeDriverManager().install())
         self.driver = webdriver.Chrome(service=service, options=options)
@@ -265,10 +276,66 @@ class SalvumMultiplePlanillas:
         self.driver.set_page_load_timeout(30)
         self.wait = WebDriverWait(self.driver, 20)
         
-        # Scripts anti-detección
+        # Scripts anti-detección + simulación ubicación chilena
         self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
-        logger.info("✅ Navegador configurado")
+        # NUEVO: Simular geolocalización chilena
+        self.driver.execute_cdp_cmd("Emulation.setGeolocationOverride", {
+            "latitude": -33.4489,  # Santiago, Chile
+            "longitude": -70.6693,
+            "accuracy": 100
+        })
+        
+        # NUEVO: Simular timezone chileno
+        self.driver.execute_cdp_cmd("Emulation.setTimezoneOverride", {
+            "timezoneId": "America/Santiago"
+        })
+        
+        logger.info("✅ Navegador configurado con simulación de ubicación chilena")
+    
+    def _obtener_proxy_chileno(self):
+        """Obtener proxy chileno gratuito"""
+        logger.info("🔍 Buscando proxy chileno...")
+        
+        # Lista de proxies chilenos gratuitos (actualizados frecuentemente)
+        proxies_chile = [
+            "200.29.109.112:80",
+            "190.110.99.215:999", 
+            "181.78.105.159:999",
+            "200.29.109.112:44749",
+            "190.110.99.168:999",
+        ]
+        
+        for proxy in proxies_chile:
+            if self._verificar_proxy(proxy):
+                logger.info(f"✅ Proxy chileno funcional: {proxy}")
+                return proxy
+        
+        logger.warning("⚠️ No se encontró proxy chileno funcional, continuando sin proxy")
+        return None
+    
+    def _verificar_proxy(self, proxy):
+        """Verificar si un proxy funciona"""
+        try:
+            import requests
+            response = requests.get(
+                'https://ipinfo.io/json', 
+                proxies={'http': f'http://{proxy}', 'https': f'http://{proxy}'},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('country') == 'CL':  # Chile
+                    logger.info(f"✅ Proxy {proxy} es chileno: {data.get('city')}")
+                    return True
+                else:
+                    logger.info(f"⚠️ Proxy {proxy} no es chileno: {data.get('country')}")
+            
+        except Exception as e:
+            logger.debug(f"❌ Proxy {proxy} falló: {e}")
+        
+        return False
     
     def realizar_login(self):
         """Login robusto en Salvum basado en código que funcionó"""
