@@ -1,54 +1,152 @@
-name: Test Acceso Salvum
+# .github/workflows/salvum-automation.yml
+name: 🏠 Salvum Credit Automation
+
 on:
-  workflow_dispatch:  # Manual trigger
+  # Ejecutar manualmente
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Modo de prueba (solo login)'
+        required: false
+        default: 'false'
+        type: boolean
+  
+  # Ejecutar automáticamente cada hora de 9 AM a 6 PM (Chile)
   schedule:
-    - cron: '0 15 * * *'  # Diario 3pm UTC (12pm Chile)
+    - cron: '0 12-21 * * 1-5'  # UTC time, Mon-Fri, 9 AM - 6 PM Chile time
+
 jobs:
-  test-salvum-access:
+  salvum-automation:
     runs-on: ubuntu-latest
     
+    env:
+      # Variables de entorno
+      SALVUM_USER: ${{ secrets.SALVUM_USER }}
+      SALVUM_PASS: ${{ secrets.SALVUM_PASS }}
+      GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+      GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+      GITHUB_ACTIONS: true
+    
     steps:
-    - name: Checkout
+    - name: 📥 Checkout código
       uses: actions/checkout@v4
     
-    - name: Setup Python
-      uses: actions/setup-python@v5
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v4
       with:
         python-version: '3.11'
+        cache: 'pip'
     
-    - name: Install Chrome
+    - name: 📦 Instalar dependencias
       run: |
-        sudo apt-get update
-        sudo apt-get install -y wget unzip
+        pip install --upgrade pip
+        pip install selenium webdriver-manager pandas gspread google-auth google-auth-oauthlib google-auth-httplib2 requests
+    
+    - name: 🔧 Configurar Chrome
+      run: |
+        # Instalar Chrome estable
         wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
         echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
+        
+        # Verificar versión
+        google-chrome --version
     
-    - name: Install Python packages
+    - name: 🌐 Verificar conectividad
       run: |
-        pip install selenium webdriver-manager requests
+        echo "🌍 Verificando IP y conectividad..."
+        curl -s https://ipinfo.io/json | jq .
+        echo "🔗 Probando acceso a Salvum..."
+        curl -I https://prescriptores.salvum.cl/login || echo "❌ No se puede acceder a Salvum"
     
-    - name: Check IP and location
+    - name: 🧪 Test de Login (si está en modo prueba)
+      if: ${{ github.event.inputs.test_mode == 'true' }}
       run: |
-        echo "🌐 Verificando IP de GitHub Actions..."
-        curl -s ipinfo.io
-        echo ""
-        echo "🔍 Testing conexión a Salvum..."
-        curl -I https://prescriptores.salvum.cl/login || echo "Conexión falló"
+        echo "🧪 Ejecutando test de login únicamente..."
+        python test_salvum_login.py
     
-    - name: Test Salvum Access
-      run: python test_salvum.py
+    - name: 🚀 Ejecutar Automatización Completa
+      if: ${{ github.event.inputs.test_mode != 'true' }}
+      run: |
+        echo "🚀 Ejecutando automatización completa..."
+        python salvum_automation.py
+      timeout-minutes: 60
+    
+    - name: 📊 Subir resultados
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: salvum-results-${{ github.run_number }}
+        path: |
+          *.png
+          *.json
+          *.log
+        retention-days: 7
+    
+    - name: 📧 Notificar resultados (opcional)
+      if: failure()
+      run: |
+        echo "❌ La automatización falló. Revisar logs y artifacts."
+        # Aquí podrías agregar notificación por Slack, email, etc.
+
+---
+
+# .github/workflows/manual-trigger.yml
+name: 🎯 Manual Salvum Trigger
+
+on:
+  workflow_dispatch:
+    inputs:
+      cliente_especifico:
+        description: 'RUT del cliente específico (opcional)'
+        required: false
+        type: string
+      modo_debug:
+        description: 'Activar modo debug con screenshots'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  manual-execution:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout
+      uses: actions/checkout@v4
+    
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: 📦 Instalar dependencias
+      run: |
+        pip install selenium webdriver-manager pandas gspread google-auth requests
+    
+    - name: 🎯 Ejecutar procesamiento manual
       env:
         SALVUM_USER: ${{ secrets.SALVUM_USER }}
         SALVUM_PASS: ${{ secrets.SALVUM_PASS }}
+        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+        GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        TARGET_RUT: ${{ github.event.inputs.cliente_especifico }}
+        DEBUG_MODE: ${{ github.event.inputs.modo_debug }}
+      run: |
+        if [ -n "$TARGET_RUT" ]; then
+          echo "🎯 Procesando cliente específico: $TARGET_RUT"
+          python salvum_automation.py --rut="$TARGET_RUT"
+        else
+          echo "🚀 Procesando todos los clientes pendientes"
+          python salvum_automation.py
+        fi
     
-    - name: Upload results
-      uses: actions/upload-artifact@v4
-      if: always()
+    - name: 📤 Subir resultados
+      uses: actions/upload-artifact@v3
       with:
-        name: salvum-test-results
+        name: manual-execution-${{ github.run_number }}
         path: |
-          *.log
           *.png
-          test_results.json
+          *.json
+          *.log
