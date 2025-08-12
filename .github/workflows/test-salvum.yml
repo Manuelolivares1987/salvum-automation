@@ -43,7 +43,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: 🐍 Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
         cache: 'pip'
@@ -168,7 +168,7 @@ jobs:
         done
     
     - name: 📊 Subir resultados
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: salvum-results-${{ github.run_number }}
