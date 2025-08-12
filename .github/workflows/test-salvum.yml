@@ -1,8 +1,7 @@
-# .github/workflows/salvum-automation.yml
+# .github/workflows/salvum-automation.yml - VERSIÓN SIMPLE SIN VPN
 name: 🏠 Salvum Múltiples Planillas
 
 on:
-  # Ejecutar manualmente
   workflow_dispatch:
     inputs:
       test_mode:
@@ -20,16 +19,14 @@ on:
         default: false
         type: boolean
   
-  # Ejecutar automáticamente cada hora de 9 AM a 6 PM (Chile)
   schedule:
-    - cron: '0 12-21 * * 1-5'  # UTC time, Mon-Fri, 9 AM - 6 PM Chile time
+    - cron: '0 12-21 * * 1-5'
 
 jobs:
   salvum-automation:
     runs-on: ubuntu-latest
     
     env:
-      # Variables de entorno
       SALVUM_USER: ${{ secrets.SALVUM_USER }}
       SALVUM_PASS: ${{ secrets.SALVUM_PASS }}
       GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
@@ -55,38 +52,16 @@ jobs:
     
     - name: 🔧 Configurar Chrome
       run: |
-        # Instalar Chrome estable
         wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
         echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
-        
-        # Verificar versión
         google-chrome --version
     
-    - name: 🇨🇱 Configurar VPN Cloudflare WARP
+    - name: 🌐 Verificar IP inicial
       run: |
-        echo "🌐 Instalando Cloudflare WARP para IP chilena..."
-        
-        # Instalar Cloudflare WARP
-        curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
-        sudo apt-get update
-        sudo apt-get install -y cloudflare-warp
-        
-        # Configurar WARP
-        warp-cli register
-        warp-cli set-mode warp
-        warp-cli connect
-        
-        # Esperar conexión
-        sleep 10
-        
-        # Verificar nueva IP
-        echo "🔍 Verificando nueva IP..."
-        curl -s https://ipinfo.io/json | jq '.'
-        
-        echo "✅ VPN configurada"
+        echo "🌍 IP antes de configuración:"
+        curl -s https://ipinfo.io/json | jq '.' || curl -s https://ipinfo.io/json
     
     - name: 📊 Verificar configuración
       run: |
@@ -132,13 +107,12 @@ jobs:
         clientes = automator.leer_todos_los_clientes()
         print(f'✅ Encontrados {len(clientes)} clientes para procesar')
         
-        print('🔧 Test 4: Login Salvum (MÉTODO MEJORADO)...')
+        print('🔧 Test 4: Login Salvum (BYPASS GEOGRÁFICO)...')
         automator.configurar_navegador()
         if automator.realizar_login():
             print('✅ Login Salvum OK')
         else:
             print('❌ Error en login Salvum')
-            # No salir con error para poder ver screenshots
             print('📸 Revisar screenshots para diagnóstico')
         
         try:
@@ -156,39 +130,6 @@ jobs:
         python salvum_automation.py
       timeout-minutes: 60
     
-    - name: 📊 Procesar agente específico
-      if: ${{ github.event.inputs.agente_especifico != '' && github.event.inputs.test_mode != 'true' }}
-      run: |
-        echo "🎯 Procesando agente específico: ${{ github.event.inputs.agente_especifico }}"
-        python -c "
-        from salvum_automation import SalvumMultiplePlanillas
-        import os
-        
-        automator = SalvumMultiplePlanillas()
-        
-        # Filtrar solo el agente específico
-        if automator.cargar_configuracion_agentes():
-            agente_target = '${{ github.event.inputs.agente_especifico }}'
-            automator.agentes_config = [
-                agente for agente in automator.agentes_config 
-                if agente_target.lower() in agente['nombre'].lower()
-            ]
-            
-            if automator.agentes_config:
-                print(f'🎯 Procesando solo: {automator.agentes_config[0][\"nombre\"]}')
-                automator.ejecutar_automatizacion_completa()
-            else:
-                print(f'❌ No se encontró agente: {agente_target}')
-        "
-    
-    - name: 📸 Capturar screenshots en caso de error
-      if: failure()
-      run: |
-        echo "📸 Capturando información de debug..."
-        find . -name "*.png" -type f | head -10 | while read file; do
-          echo "📷 Screenshot encontrado: $file"
-        done
-    
     - name: 📊 Subir resultados
       uses: actions/upload-artifact@v4
       if: always()
@@ -198,6 +139,7 @@ jobs:
           *.png
           *.json
           *.log
+          *.html
           reporte_*.json
         retention-days: 7
     
@@ -209,27 +151,14 @@ jobs:
         echo "🕐 Timestamp: $(date)"
         echo "🔧 Modo test: ${{ github.event.inputs.test_mode }}"
         echo "🐛 Modo debug: ${{ github.event.inputs.modo_debug }}"
-        echo "👥 Agente específico: ${{ github.event.inputs.agente_especifico }}"
+        
+        if [ -f "salvum_error_page.html" ]; then
+          echo "🔍 Página de error capturada para análisis"
+        fi
         
         if [ -f "reporte_multiple_planillas.json" ]; then
           echo "📊 Reporte generado:"
           cat reporte_multiple_planillas.json | jq -r '.tasa_exito // "N/A"' | xargs -I {} echo "   Tasa éxito: {}"
-          cat reporte_multiple_planillas.json | jq -r '.total_clientes // 0' | xargs -I {} echo "   Total clientes: {}"
-          cat reporte_multiple_planillas.json | jq -r '.exitosos // 0' | xargs -I {} echo "   Exitosos: {}"
-          cat reporte_multiple_planillas.json | jq -r '.fallidos // 0' | xargs -I {} echo "   Fallidos: {}"
-        else
-          echo "📊 No se generó reporte"
         fi
         
         echo "======================"
-    
-    - name: 📧 Notificar en caso de fallo (opcional)
-      if: failure()
-      run: |
-        echo "❌ La automatización falló. Información disponible en artifacts."
-        echo "🔍 Revisar logs detallados y screenshots para diagnosticar el problema."
-        echo "💡 Posibles causas:"
-        echo "   - Problemas de conectividad con Salvum"
-        echo "   - Cambios en la interfaz de Salvum"
-        echo "   - Errores en credenciales"
-        echo "   - Problemas con Google Sheets"
