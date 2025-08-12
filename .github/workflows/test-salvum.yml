@@ -1,11 +1,11 @@
-# .github/workflows/salvum-automation.yml - VERSIÓN SIMPLE SIN VPN
-name: 🏠 Salvum Múltiples Planillas
+# .github/workflows/salvum-automation-mejorado.yml
+name: 🏠 Salvum Múltiples Planillas - Mejorado
 
 on:
   workflow_dispatch:
     inputs:
       test_mode:
-        description: 'Modo de prueba (solo login)'
+        description: 'Modo de prueba (solo login y verificación)'
         required: false
         default: 'false'
         type: boolean
@@ -20,7 +20,7 @@ on:
         type: boolean
   
   schedule:
-    - cron: '0 12-21 * * 1-5'
+    - cron: '0 15 * * 1-5'  # 3pm UTC = 12pm Chile, lunes a viernes
 
 jobs:
   salvum-automation:
@@ -43,35 +43,43 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-        cache: 'pip'
     
-    - name: 📦 Instalar dependencias
+    - name: 🔧 Instalar Chrome (método simplificado)
       run: |
-        pip install --upgrade pip
-        pip install selenium webdriver-manager pandas gspread google-auth google-auth-oauthlib google-auth-httplib2 requests
-    
-    - name: 🔧 Configurar Chrome
-      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget unzip
         wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
         echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
         google-chrome --version
     
-    - name: 🌐 Verificar IP inicial
+    - name: 📦 Instalar dependencias Python
       run: |
-        echo "🌍 IP antes de configuración:"
-        curl -s https://ipinfo.io/json | jq '.' || curl -s https://ipinfo.io/json
+        pip install --upgrade pip
+        pip install selenium webdriver-manager pandas gspread google-auth google-auth-oauthlib google-auth-httplib2 requests
     
-    - name: 📊 Verificar configuración
+    - name: 🌐 Verificar IP y conexión (método que funcionó)
+      run: |
+        echo "🌐 Verificando IP de GitHub Actions..."
+        curl -s ipinfo.io
+        echo ""
+        echo "🔍 Testing conexión a Salvum..."
+        curl -I https://prescriptores.salvum.cl/login || echo "Conexión falló"
+        echo ""
+        echo "🔍 Testing conectividad general..."
+        ping -c 3 google.com || echo "Ping a Google falló"
+    
+    - name: 📊 Verificar configuración de archivos
       run: |
         echo "🔍 Verificando archivos de configuración..."
         
         if [ -f "config.json" ]; then
           echo "✅ config.json encontrado"
-          cat config.json | jq '.' || echo "❌ config.json tiene formato inválido"
+          python -c "import json; json.load(open('config.json'))" && echo "✅ JSON válido" || echo "❌ JSON inválido"
         else
           echo "❌ config.json NO encontrado"
+          ls -la
         fi
         
         echo "🔐 Verificando variables de entorno..."
@@ -79,71 +87,137 @@ jobs:
         echo "SALVUM_PASS: ${SALVUM_PASS:+SET}"
         echo "GOOGLE_SHEETS_CREDENTIALS: ${GOOGLE_SHEETS_CREDENTIALS:+SET}"
     
-    - name: 🧪 Test de Login (si está en modo prueba)
-      if: ${{ github.event.inputs.test_mode == 'true' }}
+    - name: 🧪 Test básico de acceso (siempre se ejecuta primero)
       run: |
-        echo "🧪 Ejecutando test de login únicamente..."
+        echo "🧪 Ejecutando test básico de acceso a Salvum..."
         python -c "
-        import os, sys, json
-        from salvum_automation import SalvumMultiplePlanillas
+        import os
+        import sys
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
+        from webdriver_manager.chrome import ChromeDriverManager
+        import time
         
-        automator = SalvumMultiplePlanillas()
-        
-        print('🔧 Test 1: Configuración de agentes...')
-        if automator.cargar_configuracion_agentes():
-            print('✅ Configuración de agentes OK')
-        else:
-            print('❌ Error en configuración de agentes')
-            sys.exit(1)
-        
-        print('🔧 Test 2: Google Sheets...')
-        if automator.configurar_google_sheets():
-            print('✅ Google Sheets OK')
-        else:
-            print('❌ Error en Google Sheets')
-            sys.exit(1)
-        
-        print('🔧 Test 3: Leer planillas...')
-        clientes = automator.leer_todos_los_clientes()
-        print(f'✅ Encontrados {len(clientes)} clientes para procesar')
-        
-        print('🔧 Test 4: Login Salvum (BYPASS GEOGRÁFICO)...')
-        automator.configurar_navegador()
-        if automator.realizar_login():
-            print('✅ Login Salvum OK')
-        else:
-            print('❌ Error en login Salvum')
-            print('📸 Revisar screenshots para diagnóstico')
+        # Configurar Chrome con las opciones que funcionaron
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-plugins')
+        chrome_options.add_argument('--disable-images')
         
         try:
-            automator.driver.quit()
-        except:
-            pass
-        
-        print('🎉 Test completado - revisar logs y screenshots')
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            
+            print('🔗 Intentando acceder a Salvum...')
+            driver.get('https://prescriptores.salvum.cl/login')
+            time.sleep(3)
+            
+            print(f'✅ Página cargada: {driver.title}')
+            print(f'✅ URL actual: {driver.current_url}')
+            
+            # Tomar screenshot para verificación
+            driver.save_screenshot('test_acceso.png')
+            print('📸 Screenshot guardado: test_acceso.png')
+            
+            driver.quit()
+            print('✅ Test básico completado exitosamente')
+            
+        except Exception as e:
+            print(f'❌ Error en test básico: {str(e)}')
+            sys.exit(1)
+        "
+    
+    - name: 🧪 Test completo de login (en modo prueba)
+      if: ${{ github.event.inputs.test_mode == 'true' }}
+      run: |
+        echo "🧪 Ejecutando test completo en modo prueba..."
+        python -c "
+        import os, sys
+        try:
+            from salvum_automation import SalvumMultiplePlanillas
+            
+            print('🔧 Inicializando automatizador...')
+            automator = SalvumMultiplePlanillas()
+            
+            print('🔧 Test 1: Configuración de agentes...')
+            if automator.cargar_configuracion_agentes():
+                print('✅ Configuración de agentes OK')
+            else:
+                print('❌ Error en configuración de agentes')
+                sys.exit(1)
+            
+            print('🔧 Test 2: Google Sheets...')
+            if automator.configurar_google_sheets():
+                print('✅ Google Sheets OK')
+            else:
+                print('❌ Error en Google Sheets')
+                sys.exit(1)
+            
+            print('🔧 Test 3: Leer planillas...')
+            clientes = automator.leer_todos_los_clientes()
+            print(f'✅ Encontrados {len(clientes)} clientes para procesar')
+            
+            print('🔧 Test 4: Login Salvum...')
+            automator.configurar_navegador()
+            if automator.realizar_login():
+                print('✅ Login Salvum OK - ¡Conexión establecida!')
+                # Hacer una acción simple para verificar que estamos logueados
+                if 'dashboard' in automator.driver.current_url.lower() or 'inicio' in automator.driver.current_url.lower():
+                    print('✅ Confirmado: Usuario logueado correctamente')
+                else:
+                    print('⚠️  Login exitoso pero URL inesperada:', automator.driver.current_url)
+            else:
+                print('❌ Error en login Salvum')
+                print('📸 Revisar screenshots para diagnóstico')
+                sys.exit(1)
+            
+            try:
+                automator.driver.quit()
+            except:
+                pass
+            
+            print('🎉 Test completo exitoso - Sistema listo para producción')
+            
+        except ImportError as e:
+            print(f'❌ Error importando salvum_automation: {e}')
+            print('📋 Verificar que el archivo salvum_automation.py existe')
+            sys.exit(1)
+        except Exception as e:
+            print(f'❌ Error inesperado: {e}')
+            sys.exit(1)
         "
     
     - name: 🚀 Ejecutar Automatización Completa
       if: ${{ github.event.inputs.test_mode != 'true' }}
       run: |
         echo "🚀 Ejecutando automatización completa..."
+        echo "📊 Modo debug: ${{ github.event.inputs.modo_debug }}"
+        echo "👤 Agente específico: ${{ github.event.inputs.agente_especifico }}"
+        
         python salvum_automation.py
-      timeout-minutes: 60
+      timeout-minutes: 90
     
-    - name: 📊 Subir resultados
+    - name: 📊 Subir resultados y logs
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: salvum-results-${{ github.run_number }}
+        name: salvum-results-${{ github.run_number }}-${{ github.run_attempt }}
         path: |
           *.png
           *.json
           *.log
           *.html
           reporte_*.json
+          test_results.json
         retention-days: 7
     
-    - name: 📋 Resumen final
+    - name: 📋 Resumen final detallado
       if: always()
       run: |
         echo "📋 RESUMEN DE EJECUCIÓN"
@@ -151,14 +225,36 @@ jobs:
         echo "🕐 Timestamp: $(date)"
         echo "🔧 Modo test: ${{ github.event.inputs.test_mode }}"
         echo "🐛 Modo debug: ${{ github.event.inputs.modo_debug }}"
+        echo "👤 Agente específico: ${{ github.event.inputs.agente_especifico }}"
+        echo "🔄 Intento #: ${{ github.run_attempt }}"
         
+        # Verificar archivos generados
+        echo ""
+        echo "📁 Archivos generados:"
+        ls -la *.png *.json *.log *.html 2>/dev/null || echo "   No se encontraron archivos de resultado"
+        
+        # Mostrar reporte si existe
+        if [ -f "reporte_multiple_planillas.json" ]; then
+          echo ""
+          echo "📊 Reporte de ejecución:"
+          python -c "
+        import json
+        try:
+            with open('reporte_multiple_planillas.json', 'r') as f:
+                reporte = json.load(f)
+            print(f'   ✅ Tasa de éxito: {reporte.get(\"tasa_exito\", \"N/A\")}')
+            print(f'   📊 Total procesados: {reporte.get(\"total_procesados\", \"N/A\")}')
+            print(f'   ✅ Exitosos: {reporte.get(\"exitosos\", \"N/A\")}')
+            print(f'   ❌ Fallidos: {reporte.get(\"fallidos\", \"N/A\")}')
+        except Exception as e:
+            print(f'   ❌ Error leyendo reporte: {e}')
+          "
+        fi
+        
+        # Verificar errores
         if [ -f "salvum_error_page.html" ]; then
           echo "🔍 Página de error capturada para análisis"
         fi
         
-        if [ -f "reporte_multiple_planillas.json" ]; then
-          echo "📊 Reporte generado:"
-          cat reporte_multiple_planillas.json | jq -r '.tasa_exito // "N/A"' | xargs -I {} echo "   Tasa éxito: {}"
-        fi
-        
         echo "======================"
+        echo "✅ Proceso completado - Revisar artifacts para detalles"
