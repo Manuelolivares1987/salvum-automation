@@ -303,40 +303,144 @@ class SalvumMultiplePlanillas:
         return False
     
     def _intentar_login(self, usuario, password):
-        """Método de login optimizado"""
+        """Método de login optimizado con múltiples estrategias"""
         try:
-            # Buscar campos
-            campo_usuario = self.wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='text']"))
-            )
-            campo_password = self.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+            logger.info("🔍 Analizando página de login...")
             
-            # Llenar campos
+            # Screenshot inicial para debug
+            self.driver.save_screenshot("login_inicial.png")
+            
+            # Estrategia 1: Selectores específicos
+            try:
+                campo_usuario = self.wait.until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='text']"))
+                )
+                campo_password = self.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+                
+                logger.info("✅ Campos encontrados con selectores específicos")
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Selectores específicos fallaron: {e}")
+                
+                # Estrategia 2: Buscar por posición
+                inputs = self.driver.find_elements(By.TAG_NAME, "input")
+                inputs_visibles = [inp for inp in inputs if inp.is_displayed() and inp.is_enabled()]
+                
+                if len(inputs_visibles) >= 2:
+                    campo_usuario = inputs_visibles[0]  
+                    campo_password = inputs_visibles[1]
+                    logger.info("✅ Campos encontrados por posición")
+                else:
+                    logger.error("❌ No se encontraron campos de entrada")
+                    return False
+            
+            # Llenar usuario
+            logger.info("📝 Llenando usuario...")
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", campo_usuario)
+            time.sleep(1)
             campo_usuario.clear()
+            time.sleep(1)
             campo_usuario.send_keys(usuario)
             time.sleep(2)
             
+            # Llenar password  
+            logger.info("🔒 Llenando password...")
             campo_password.clear()
+            time.sleep(1)
             campo_password.send_keys(password)
             time.sleep(2)
             
-            # Submit
+            # Screenshot antes de submit
+            self.driver.save_screenshot("login_antes_submit.png")
+            
+            # Submit con múltiples métodos
+            logger.info("🔘 Intentando submit...")
+            submit_exitoso = False
+            
+            # Método 1: Botón submit
             try:
-                boton = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-                boton.click()
+                boton = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit'], input[type='submit']")
+                self.driver.execute_script("arguments[0].click();", boton)
+                submit_exitoso = True
+                logger.info("✅ Submit con botón")
             except:
-                campo_password.send_keys(Keys.RETURN)
+                pass
             
-            time.sleep(8)
+            # Método 2: Buscar botón por texto
+            if not submit_exitoso:
+                try:
+                    boton = self.driver.find_element(By.XPATH, 
+                        "//button[contains(text(), 'Ingresar') or contains(text(), 'LOGIN') or contains(text(), 'Entrar')]")
+                    self.driver.execute_script("arguments[0].click();", boton)
+                    submit_exitoso = True
+                    logger.info("✅ Submit con botón por texto")
+                except:
+                    pass
             
-            # Verificar éxito
-            if "login" not in self.driver.current_url.lower():
+            # Método 3: Enter en password
+            if not submit_exitoso:
+                try:
+                    campo_password.send_keys(Keys.RETURN)
+                    submit_exitoso = True
+                    logger.info("✅ Submit con ENTER")
+                except:
+                    pass
+            
+            # Método 4: Submit del formulario
+            if not submit_exitoso:
+                try:
+                    form = campo_usuario.find_element(By.XPATH, "./ancestor::form")
+                    self.driver.execute_script("arguments[0].submit();", form)
+                    submit_exitoso = True
+                    logger.info("✅ Submit del formulario")
+                except:
+                    pass
+            
+            if not submit_exitoso:
+                logger.error("❌ No se pudo hacer submit")
+                return False
+            
+            # Esperar respuesta
+            logger.info("⏳ Esperando respuesta del servidor...")
+            time.sleep(10)
+            
+            # Screenshot después de submit
+            self.driver.save_screenshot("login_despues_submit.png")
+            
+            # Verificar resultado
+            nueva_url = self.driver.current_url
+            logger.info(f"📍 URL después de login: {nueva_url}")
+            
+            # Múltiples verificaciones de éxito
+            if "login" not in nueva_url.lower():
+                logger.info("✅ Login exitoso - URL cambió")
                 return True
             
+            # Verificar si hay elementos post-login
+            try:
+                elementos_dashboard = self.driver.find_elements(By.CSS_SELECTOR, 
+                    "nav, .menu, .dashboard, .logout, [class*='menu'], [class*='dashboard']")
+                if elementos_dashboard:
+                    logger.info("✅ Login exitoso - elementos dashboard detectados")
+                    return True
+            except:
+                pass
+            
+            # Verificar texto de error
+            page_text = self.driver.page_source.lower()
+            if any(error in page_text for error in ['incorrecto', 'invalid', 'error', 'failed']):
+                logger.warning("⚠️ Posible error de credenciales detectado")
+            
+            logger.warning("⚠️ Login no confirmado")
+            return False
+            
         except Exception as e:
-            logger.warning(f"⚠️ Error en login: {e}")
-        
-        return False
+            logger.error(f"❌ Error en login: {e}")
+            try:
+                self.driver.save_screenshot("login_error.png")
+            except:
+                pass
+            return False
     
     def procesar_cliente_individual(self, cliente_data):
         """Procesar un cliente individual en Salvum"""
