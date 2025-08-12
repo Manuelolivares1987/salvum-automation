@@ -259,7 +259,10 @@ class SalvumMultiplePlanillas:
         options.add_argument('--disable-gpu')
         options.add_argument('--window-size=1920,1080')
         options.add_argument('--remote-debugging-port=9222')
-        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36')
+        # User agent chileno específico
+        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        options.add_argument('--lang=es-CL')
+        options.add_argument('--accept-language=es-CL,es;q=0.9,en;q=0.8')
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
@@ -338,10 +341,65 @@ class SalvumMultiplePlanillas:
         return False
     
     def realizar_login(self):
-        """Login robusto en Salvum basado en código que funcionó"""
+        """Login robusto en Salvum con bypass geográfico agresivo"""
         logger.info("🔐 Realizando login en Salvum...")
         
         try:
+            # NUEVO: Bypass geográfico más agresivo
+            logger.info("🇨🇱 Aplicando bypass geográfico avanzado...")
+            
+            # Interceptar y modificar todas las requests
+            self.driver.execute_cdp_cmd('Network.enable')
+            self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+                "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "acceptLanguage": "es-CL,es;q=0.9",
+                "platform": "Win32"
+            })
+            
+            # Simular headers de request chilenos
+            self.driver.execute_cdp_cmd('Network.setRequestInterception', {
+                'patterns': [{'urlPattern': '*'}]
+            })
+            
+            # Script para interceptar y modificar requests
+            bypass_script = """
+            // Interceptar XHR y Fetch para agregar headers chilenos
+            const originalFetch = window.fetch;
+            window.fetch = function(...args) {
+                if (args[1]) {
+                    args[1].headers = args[1].headers || {};
+                    args[1].headers['CF-IPCountry'] = 'CL';
+                    args[1].headers['X-Forwarded-For'] = '200.29.109.112';
+                    args[1].headers['X-Real-IP'] = '200.29.109.112';
+                    args[1].headers['Accept-Language'] = 'es-CL,es;q=0.9,en;q=0.8';
+                }
+                return originalFetch.apply(this, args);
+            };
+            
+            const originalXHR = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+                originalXHR.apply(this, arguments);
+                this.setRequestHeader('CF-IPCountry', 'CL');
+                this.setRequestHeader('X-Forwarded-For', '200.29.109.112');
+                this.setRequestHeader('Accept-Language', 'es-CL,es;q=0.9,en;q=0.8');
+            };
+            
+            // Simular timezone y ubicación chilena
+            Object.defineProperty(navigator, 'language', { get: () => 'es-CL' });
+            Object.defineProperty(navigator, 'languages', { get: () => ['es-CL', 'es', 'en'] });
+            
+            // Override Date para timezone chileno
+            const originalDate = Date;
+            Date = function(...args) {
+                const date = new originalDate(...args);
+                date.getTimezoneOffset = () => 180; // UTC-3 (Chile)
+                return date;
+            };
+            Date.prototype = originalDate.prototype;
+            """
+            
+            self.driver.execute_script(bypass_script)
+            
             # Verificar IP (del código que funcionó)
             logger.info("🌐 Verificando IP de GitHub Actions...")
             try:
@@ -350,15 +408,17 @@ class SalvumMultiplePlanillas:
                 logger.info(f"📍 IP: {ip_info.get('ip')}")
                 logger.info(f"🏙️ Ciudad: {ip_info.get('city')}")
                 logger.info(f"🏢 País: {ip_info.get('country')}")
+                
             except:
                 logger.info("⚠️ No se pudo obtener info de IP")
             
-            # Acceder a página de login
+            # Acceder a página de login con headers modificados
+            logger.info("🔗 Accediendo a Salvum con bypass geográfico...")
             self.driver.get("https://prescriptores.salvum.cl/login")
             
             # Esperar carga completa (del código que funcionó)
             logger.info("⏳ Esperando carga completa...")
-            time.sleep(15)  # Espera más larga como en el código que funcionó
+            time.sleep(15)
             
             # Información de la página
             url = self.driver.current_url
@@ -376,6 +436,10 @@ class SalvumMultiplePlanillas:
             # Verificar si llegamos a la página correcta
             page_source = self.driver.page_source.lower()
             
+            # NUEVO: Verificar contenido específico para diagnosticar bloqueo
+            if "geo" in page_source or "location" in page_source or "country" in page_source:
+                logger.warning("⚠️ Posible bloqueo geográfico detectado en contenido")
+            
             if "bbva" in titulo.lower():
                 logger.error("❌ BLOQUEADO - Redirigido a BBVA")
                 return False
@@ -389,14 +453,82 @@ class SalvumMultiplePlanillas:
                 return self._realizar_login_mejorado()
             else:
                 logger.warning("❓ Estado desconocido de página")
+                # Guardar HTML para debug
+                with open('pagina_debug.html', 'w', encoding='utf-8') as f:
+                    f.write(self.driver.page_source)
+                logger.info("💾 HTML guardado en pagina_debug.html para análisis")
                 return False
                 
         except Exception as e:
             logger.error(f"❌ Error general en login: {e}")
             return False
     
+    def _configurar_headers_chilenos(self):
+        """Configurar headers para simular acceso desde Chile"""
+        logger.info("🇨🇱 Configurando headers chilenos...")
+        
+        try:
+            # Configurar headers adicionales vía CDP
+            self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+                "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "acceptLanguage": "es-CL,es;q=0.9,en;q=0.8",
+                "platform": "Win32"
+            })
+            
+            # Configurar headers de geolocalización
+            self.driver.execute_cdp_cmd('Network.enable')
+            self.driver.execute_cdp_cmd('Network.setRequestInterception', {'patterns': [{'urlPattern': '*'}]})
+            
+            logger.info("✅ Headers chilenos configurados")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ No se pudieron configurar headers: {e}")
+    
+    def _aplicar_simulacion_chilena(self):
+        """Aplicar simulación adicional para parecer acceso chileno"""
+        logger.info("🇨🇱 Aplicando simulación chilena adicional...")
+        
+        try:
+            # Simular conexión desde Chile
+            script_simulacion = """
+            // Simular información de conexión chilena
+            Object.defineProperty(navigator, 'connection', {
+                get: () => ({
+                    downlink: 10,
+                    effectiveType: '4g',
+                    rtt: 100,
+                    saveData: false
+                })
+            });
+            
+            // Simular timezone chileno
+            Intl.DateTimeFormat = function() {
+                return {
+                    resolvedOptions: () => ({
+                        timeZone: 'America/Santiago',
+                        locale: 'es-CL'
+                    })
+                };
+            };
+            
+            // Simular idioma chileno
+            Object.defineProperty(navigator, 'language', {
+                get: () => 'es-CL'
+            });
+            
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['es-CL', 'es', 'en']
+            });
+            """
+            
+            self.driver.execute_script(script_simulacion)
+            logger.info("✅ Simulación chilena aplicada")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error en simulación: {e}")
+    
     def _realizar_login_mejorado(self):
-        """Método de login basado exactamente en el código que funcionó"""
+        """Método de login con diagnóstico avanzado de errores"""
         logger.info("🔑 INICIANDO PROCESO DE LOGIN MEJORADO")
         logger.info("-" * 50)
         
@@ -405,8 +537,15 @@ class SalvumMultiplePlanillas:
             usuario = os.getenv('SALVUM_USER', 'Molivaco')
             password = os.getenv('SALVUM_PASS', 'd6r4YaXN')
             
-            logger.info(f"👤 Usuario: {usuario}")
+            logger.info(f"👤 Usuario: {usuario}")  # Mostrar usuario real para debug
             logger.info("🔒 Password: [PROTEGIDO]")
+            
+            # Verificar que las credenciales no estén vacías
+            if not usuario or not password:
+                logger.error("❌ Credenciales vacías!")
+                logger.error(f"Usuario válido: {bool(usuario)}")
+                logger.error(f"Password válido: {bool(password)}")
+                return False
             
             # MÉTODO 1: Selectores específicos mejorados (del código que funcionó)
             logger.info("🔍 Método 1: Buscando campos con selectores específicos...")
@@ -488,6 +627,10 @@ class SalvumMultiplePlanillas:
             logger.info("✅ Usuario ingresado")
             time.sleep(2)
             
+            # Verificar que el usuario se ingresó correctamente
+            valor_usuario = campo_usuario.get_attribute('value')
+            logger.info(f"🔍 Valor en campo usuario: '{valor_usuario}'")
+            
             # Focus en password
             self.driver.execute_script("arguments[0].focus();", campo_password)
             time.sleep(1)
@@ -498,6 +641,10 @@ class SalvumMultiplePlanillas:
             campo_password.send_keys(password)
             logger.info("✅ Password ingresado")
             time.sleep(2)
+            
+            # Verificar que el password se ingresó correctamente (sin mostrar valor)
+            valor_password_length = len(campo_password.get_attribute('value'))
+            logger.info(f"🔍 Longitud password ingresado: {valor_password_length} caracteres")
             
             # Screenshot antes de submit
             self.driver.save_screenshot('salvum_antes_submit.png')
@@ -568,18 +715,59 @@ class SalvumMultiplePlanillas:
             self.driver.save_screenshot('salvum_despues_submit.png')
             logger.info("📸 Screenshot después de submit")
             
-            # VERIFICAR RESULTADO (del código que funcionó)
+            # VERIFICAR RESULTADO CON DIAGNÓSTICO AVANZADO
             nueva_url = self.driver.current_url
             nuevo_titulo = self.driver.title
             
             logger.info(f"📍 Nueva URL: {nueva_url}")
             logger.info(f"📄 Nuevo título: {nuevo_titulo}")
             
-            # Verificar si hay mensajes de error
+            # NUEVO: Analizar mensajes de error específicos
+            page_text = self.driver.page_source.lower()
+            
+            # Buscar mensajes de error específicos
+            errores_comunes = [
+                'credenciales incorrectas',
+                'usuario no válido', 
+                'contraseña incorrecta',
+                'acceso denegado',
+                'error de autenticación',
+                'invalid credentials',
+                'login failed',
+                'access denied',
+                'ubicación no autorizada',
+                'país no permitido',
+                'geo-blocked',
+                'region blocked'
+            ]
+            
+            errores_encontrados = []
+            for error in errores_comunes:
+                if error in page_text:
+                    errores_encontrados.append(error)
+            
+            if errores_encontrados:
+                logger.error(f"❌ Errores específicos detectados: {', '.join(errores_encontrados)}")
+            
+            # Buscar elementos de error en la página
             try:
-                page_text = self.driver.page_source.lower()
-                if "incorrecto" in page_text or "error" in page_text:
-                    logger.warning("⚠️ Posible mensaje de error detectado")
+                elementos_error = self.driver.find_elements(By.CSS_SELECTOR, 
+                    ".error, .alert-danger, .text-danger, [class*='error'], [class*='danger']")
+                
+                for elemento in elementos_error:
+                    if elemento.is_displayed():
+                        texto_error = elemento.text.strip()
+                        if texto_error:
+                            logger.error(f"🚨 Mensaje de error en página: '{texto_error}'")
+            except:
+                pass
+            
+            # Verificar elementos que indican login exitoso
+            elementos_success = []
+            try:
+                posibles_success = self.driver.find_elements(By.CSS_SELECTOR, 
+                    ".dashboard, nav, .menu, .logout, [href*='logout'], [class*='dashboard'], [class*='menu']")
+                elementos_success = [el for el in posibles_success if el.is_displayed()]
             except:
                 pass
             
@@ -587,18 +775,18 @@ class SalvumMultiplePlanillas:
             if nueva_url != "https://prescriptores.salvum.cl/login" and "login" not in nueva_url.lower():
                 logger.info("🎉 ¡LOGIN EXITOSO! - URL cambió")
                 
-                # Buscar indicadores de login exitoso
-                try:
-                    elementos_post_login = self.driver.find_elements(By.CSS_SELECTOR, 
-                        "nav, .menu, .dashboard, .logout, .profile, [class*='menu'], [class*='nav']")
-                    if elementos_post_login:
-                        logger.info(f"✅ {len(elementos_post_login)} elementos post-login encontrados")
-                except:
-                    pass
-                    
+                if elementos_success:
+                    logger.info(f"✅ {len(elementos_success)} elementos post-login encontrados")
+                
                 return True
             else:
-                logger.info("❌ Login falló - permanece en página de login")
+                logger.error("❌ Login falló - permanece en página de login")
+                
+                # Guardar HTML completo para análisis
+                with open('salvum_error_page.html', 'w', encoding='utf-8') as f:
+                    f.write(self.driver.page_source)
+                logger.info("💾 Página de error guardada en salvum_error_page.html")
+                
                 return False
                 
         except Exception as e:
