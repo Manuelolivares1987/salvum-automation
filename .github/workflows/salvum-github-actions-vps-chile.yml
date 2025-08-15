@@ -1,0 +1,305 @@
+# .github/workflows/salvum-github-actions-vps-chile.yml
+name: 🇨🇱 Salvum con VPS Chile (Rackeo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Solo test de conexión y login'
+        required: false
+        default: 'true'
+        type: boolean
+      agente_especifico:
+        description: 'Procesar solo un agente específico'
+        required: false
+        type: string
+
+  schedule:
+    - cron: '0 15 * * 1-5'  # 3pm UTC = 12pm Chile, lunes a viernes
+
+jobs:
+  salvum-con-vps-chile:
+    runs-on: ubuntu-latest
+    
+    env:
+      SALVUM_USER: ${{ secrets.SALVUM_USER }}
+      SALVUM_PASS: ${{ secrets.SALVUM_PASS }}
+      GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+      # Credenciales VPS Chile (agregar en GitHub Secrets)
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
+      TEST_MODE: ${{ github.event.inputs.test_mode }}
+      AGENTE_ESPECIFICO: ${{ github.event.inputs.agente_especifico }}
+    
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+    
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: 🔧 Instalar Chrome
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget unzip
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+        google-chrome --version
+    
+    - name: 📦 Instalar dependencias Python y SSH
+      run: |
+        pip install --upgrade pip
+        pip install selenium webdriver-manager pandas gspread google-auth google-auth-oauthlib google-auth-httplib2 requests
+        sudo apt-get install -y sshpass openssh-client
+    
+    - name: 🌐 Verificar IP original
+      run: |
+        echo "🌐 IP ORIGINAL (GitHub Actions):"
+        curl -s ipinfo.io | jq '.' || curl -s ipinfo.io
+    
+    - name: 🔑 Configurar SSH para VPS Chile
+      run: |
+        echo "🔧 Configurando conexión SSH al VPS chileno..."
+        
+        # Crear directorio SSH
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        
+        # Desactivar verificación de host (para automación)
+        echo "Host *" > ~/.ssh/config
+        echo "  StrictHostKeyChecking no" >> ~/.ssh/config
+        echo "  UserKnownHostsFile /dev/null" >> ~/.ssh/config
+        chmod 600 ~/.ssh/config
+        
+        # Test de conexión SSH
+        echo "🧪 Probando conexión SSH..."
+        sshpass -p "$VPS_PASSWORD" ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+          -o ConnectTimeout=10 \
+          "echo '✅ Conexión SSH exitosa! IP del VPS:'; curl -s ipinfo.io/ip"
+    
+    - name: 🇨🇱 Crear túnel SOCKS a VPS Chile
+      run: |
+        echo "🔗 Creando túnel SOCKS al VPS chileno..."
+        
+        # Crear túnel SOCKS en background
+        sshpass -p "$VPS_PASSWORD" ssh -p "$VPS_PORT" \
+          -D 8080 -N -f \
+          -o ExitOnForwardFailure=yes \
+          -o ServerAliveInterval=60 \
+          -o ServerAliveCountMax=3 \
+          "$VPS_USER@$VPS_HOST"
+        
+        echo "✅ Túnel SOCKS creado en puerto 8080"
+        
+        # Verificar que el túnel esté activo
+        sleep 5
+        if pgrep -f "ssh.*-D 8080" > /dev/null; then
+          echo "✅ Túnel SSH está ejecutándose"
+          ps aux | grep "ssh.*-D 8080" | grep -v grep
+        else
+          echo "❌ Error: Túnel SSH no está ejecutándose"
+          exit 1
+        fi
+    
+    - name: 🧪 Verificar IP Chilena via SOCKS
+      run: |
+        echo "🧪 Verificando IP a través del túnel SOCKS..."
+        
+        # Verificar IP usando el proxy SOCKS
+        NEW_IP=$(curl -s --max-time 15 \
+          --socks5-hostname localhost:8080 \
+          ipinfo.io/json || echo '{"error": "timeout"}')
+        
+        echo "📍 Nueva IP info (via VPS Chile):"
+        echo "$NEW_IP" | jq '.' || echo "$NEW_IP"
+        
+        # Verificar país
+        COUNTRY=$(echo "$NEW_IP" | jq -r '.country // "UNKNOWN"')
+        CITY=$(echo "$NEW_IP" | jq -r '.city // "UNKNOWN"')
+        IP=$(echo "$NEW_IP" | jq -r '.ip // "UNKNOWN"')
+        
+        echo "🏢 País detectado: $COUNTRY"
+        echo "🏙️ Ciudad: $CITY"
+        echo "📡 IP: $IP"
+        
+        # Verificar que es la IP de nuestro VPS
+        if [ "$IP" = "$VPS_HOST" ]; then
+          echo "✅ ¡PERFECTO! Usando IP del VPS chileno ($IP)"
+        else
+          echo "⚠️ Advertencia: IP diferente a la esperada (esperada: $VPS_HOST, obtenida: $IP)"
+        fi
+        
+        if [ "$COUNTRY" = "CL" ]; then
+          echo "🇨🇱 ¡ÉXITO! IP chilena confirmada"
+        else
+          echo "❌ Error: IP no es chilena (País: $COUNTRY)"
+          exit 1
+        fi
+    
+    - name: 🔓 Test acceso Salvum via VPS
+      run: |
+        echo "🔍 Probando acceso a Salvum con IP del VPS chileno..."
+        
+        SALVUM_RESPONSE=$(curl -s -I --max-time 20 \
+          --socks5-hostname localhost:8080 \
+          https://prescriptores.salvum.cl/login || echo "ERROR: timeout")
+        
+        echo "📊 Respuesta Salvum:"
+        echo "$SALVUM_RESPONSE"
+        
+        if echo "$SALVUM_RESPONSE" | grep -q "200 OK"; then
+          echo "✅ ¡ÉXITO! Salvum accesible (200 OK)"
+        elif echo "$SALVUM_RESPONSE" | grep -q "403"; then
+          echo "❌ Error: Salvum aún bloquea (403 Forbidden)"
+          echo "💡 Verificar que la IP del VPS esté en Chile"
+          exit 1
+        else
+          echo "⚠️ Respuesta inesperada de Salvum"
+          echo "$SALVUM_RESPONSE"
+        fi
+    
+    - name: 🤖 Ejecutar automatización Salvum
+      if: ${{ github.event.inputs.test_mode != 'true' }}
+      run: |
+        echo "🚀 Ejecutando automatización completa de Salvum..."
+        echo "🧪 Modo test: ${{ github.event.inputs.test_mode }}"
+        echo "👤 Agente específico: ${{ github.event.inputs.agente_especifico }}"
+        
+        # Configurar proxy para Python/Selenium
+        export HTTP_PROXY=socks5://localhost:8080
+        export HTTPS_PROXY=socks5://localhost:8080
+        
+        # Ejecutar automatización
+        python salvum_automation_vps.py
+      timeout-minutes: 90
+    
+    - name: 🧪 Solo test de login (modo test)
+      if: ${{ github.event.inputs.test_mode == 'true' }}
+      run: |
+        echo "🧪 Ejecutando solo test de login con VPS Chile..."
+        
+        python -c "
+        import os
+        import sys
+        import time
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.chrome.service import Service
+        from selenium.webdriver.common.keys import Keys
+        from webdriver_manager.chrome import ChromeDriverManager
+        
+        print('🔧 Configurando navegador con proxy SOCKS...')
+        options = Options()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--window-size=1920,1080')
+        
+        # Configurar proxy SOCKS para Chrome
+        options.add_argument('--proxy-server=socks5://localhost:8080')
+        options.add_argument('--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost')
+        
+        try:
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+            
+            # Verificar IP del navegador
+            print('🔍 Verificando IP del navegador...')
+            driver.get('https://ipinfo.io/json')
+            time.sleep(3)
+            ip_info = driver.find_element(By.TAG_NAME, 'pre').text
+            print(f'📍 IP del navegador: {ip_info}')
+            
+            print('🔗 Accediendo a Salvum...')
+            driver.get('https://prescriptores.salvum.cl/login')
+            time.sleep(8)
+            
+            titulo = driver.title
+            url = driver.current_url
+            print(f'📄 Título: {titulo}')
+            print(f'📍 URL: {url}')
+            
+            driver.save_screenshot('test_salvum_vps_chile.png')
+            print('📸 Screenshot guardado')
+            
+            # Buscar campos de login
+            campos_texto = driver.find_elements(By.CSS_SELECTOR, 'input[type=\"text\"], input[name*=\"usuario\"], input[name*=\"email\"]')
+            campos_password = driver.find_elements(By.CSS_SELECTOR, 'input[type=\"password\"]')
+            
+            if campos_texto and campos_password:
+                print(f'✅ Campos de login encontrados: {len(campos_texto)} texto, {len(campos_password)} password')
+                print('🎉 ¡Test de acceso exitoso con VPS Chile!')
+            else:
+                print('❌ No se encontraron campos de login')
+                # Guardar HTML para debug
+                with open('salvum_page.html', 'w', encoding='utf-8') as f:
+                    f.write(driver.page_source)
+                print('📝 HTML guardado para debug')
+            
+            driver.quit()
+            
+        except Exception as e:
+            print(f'❌ Error en test: {e}')
+            if 'driver' in locals():
+                driver.save_screenshot('error_salvum_vps.png')
+                with open('error_page.html', 'w', encoding='utf-8') as f:
+                    f.write(driver.page_source)
+            sys.exit(1)
+        "
+    
+    - name: 🔌 Cerrar túnel SSH
+      if: always()
+      run: |
+        echo "🔌 Cerrando túnel SSH..."
+        
+        # Matar procesos SSH del túnel
+        pkill -f "ssh.*-D 8080" || echo "Túnel SSH ya estaba cerrado"
+        
+        # Verificar desconexión
+        sleep 3
+        FINAL_IP=$(curl -s --max-time 10 ipinfo.io/json || echo '{"error": "timeout"}')
+        echo "📍 IP final (sin túnel):"
+        echo "$FINAL_IP" | jq '.' || echo "$FINAL_IP"
+    
+    - name: 📊 Subir resultados
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: salvum-vps-chile-results-${{ github.run_number }}
+        path: |
+          *.png
+          *.json
+          *.html
+        retention-days: 7
+    
+    - name: 📋 Resumen final
+      if: always()
+      run: |
+        echo "📋 RESUMEN EJECUCIÓN CON VPS CHILE"
+        echo "=================================="
+        echo "🕐 Timestamp: $(date)"
+        echo "🖥️ VPS Host: $VPS_HOST"
+        echo "🔌 VPS Port: $VPS_PORT"
+        echo "👤 VPS User: $VPS_USER"
+        echo "🧪 Modo test: ${{ github.event.inputs.test_mode }}"
+        echo "👤 Agente específico: ${{ github.event.inputs.agente_especifico }}"
+        echo ""
+        echo "📁 Archivos generados:"
+        ls -la *.png *.json *.html 2>/dev/null || echo "No se generaron archivos"
+        echo ""
+        echo "💡 VENTAJAS DE TU VPS CHILE:"
+        echo "   ✅ IP 100% chilena garantizada (45.7.230.109)"
+        echo "   ✅ Servidor dedicado propio"
+        echo "   ✅ Sin límites de uso"
+        echo "   ✅ Mayor velocidad que VPN shared"
+        echo "   ✅ Más confiable y estable"
+        echo "   ✅ Sin restricciones de proveedores VPN"
+        echo "=================================="
