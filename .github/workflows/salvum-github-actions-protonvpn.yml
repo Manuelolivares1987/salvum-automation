@@ -1,0 +1,303 @@
+# .github/workflows/salvum-github-actions-protonvpn.yml
+name: 🇨🇱 Salvum con ProtonVPN en GitHub Actions
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Solo test de conexión y login'
+        required: false
+        default: 'true'
+        type: boolean
+      agente_especifico:
+        description: 'Procesar solo un agente específico'
+        required: false
+        type: string
+
+  schedule:
+    - cron: '0 15 * * 1-5'  # 3pm UTC = 12pm Chile, lunes a viernes
+
+jobs:
+  salvum-con-protonvpn:
+    runs-on: ubuntu-latest
+    
+    env:
+      SALVUM_USER: ${{ secrets.SALVUM_USER }}
+      SALVUM_PASS: ${{ secrets.SALVUM_PASS }}
+      GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+      # Credenciales ProtonVPN (agregar en GitHub Secrets)
+      PROTON_USERNAME: ${{ secrets.PROTON_USERNAME }}
+      PROTON_PASSWORD: ${{ secrets.PROTON_PASSWORD }}
+      TEST_MODE: ${{ github.event.inputs.test_mode }}
+      AGENTE_ESPECIFICO: ${{ github.event.inputs.agente_especifico }}
+    
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+    
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: 🔧 Instalar Chrome
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget unzip
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+        google-chrome --version
+    
+    - name: 📦 Instalar dependencias Python
+      run: |
+        pip install --upgrade pip
+        pip install selenium webdriver-manager pandas gspread google-auth google-auth-oauthlib google-auth-httplib2 requests
+    
+    - name: 🌐 Verificar IP original
+      run: |
+        echo "🌐 IP ORIGINAL (GitHub Actions):"
+        curl -s ipinfo.io | jq '.' || curl -s ipinfo.io
+    
+    - name: 🔧 Instalar OpenVPN
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y openvpn
+        openvpn --version
+    
+    - name: 📁 Crear archivo de configuración ProtonVPN Chile
+      run: |
+        # Crear archivo de configuración OpenVPN para Chile
+        # Usando servidor CL-26 que ya tienes
+        cat > proton-chile.ovpn << 'EOF'
+        client
+        dev tun
+        proto tcp
+        remote cl-26.protonvpn.net 443
+        resolv-retry infinite
+        nobind
+        persist-key
+        persist-tun
+        ca [inline]
+        cert [inline]
+        key [inline]
+        remote-cert-tls server
+        auth SHA512
+        cipher AES-256-CBC
+        tls-client
+        tls-version-min 1.2
+        tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
+        verb 3
+        
+        <ca>
+        -----BEGIN CERTIFICATE-----
+        MIIFozCCA4ugAwIBAgIBATANBgkqhkiG9w0BAQ0FADBAMQswCQYDVQQGEwJDSDEV
+        MBMGA1UEChMMUHJvdG9uVlBOIEFHMRowGAYDVQQDExFQcm90b25WUE4gUm9vdCBD
+        QTAeFw0xNzAyMTUxNDM4MDBaFw0yNzAyMTUxNDM4MDBaMEAxCzAJBgNVBAYTAkNI
+        MRUwEwYDVQQKEwxQcm90b25WUE4gQUcxGjAYBgNVBAMTEVByb3RvblZQTiBSb290
+        IENBMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAt+BsSsZg7+AuqTq7
+        vDbPzfygtl9f8fLJqO4amsyOXlI7pquL5IsEZhpWyJIIvYybqS4s1/T7BbvHPLVE
+        wlrq8A5DBIXcfuXrBbKoYkmpICGKe0lrAwtvN8rYjfNRhA0PzIvqk/PKvHo1aE6k
+        VNAUfbTpCe6OJOEayIKW1AhA6gvDMwECdPvhYZXlJjyAj9GtjWK6+DnOO7cRO/G3
+        xE7zMcGJRQQoXE5YVbzZhkKXmCWW5HVJJ8sRjuANVmVFwY7HvzOhm7rU6U7CxDDN
+        8a0I1dYYGHc7SKz9YRzNzOlqMp6OXAp5FvD5CtVgPUlWePKr6FrLQNJKfUgtOpgT
+        U9l3+qUE5NUMwzQhVADgOK0OxBSoqowKBllcT9rlaTqF5mO6W1DYPyOzBh5vJ7Bh
+        kf6kOkDEb7GN6C7DbIJmTF2Cb7OwXL6Cs9wTMH8X+UuQ9Pn/x5LpCNn0fVhgNdVl
+        w9zqbcJCtAHF8UM/2lxnG3XCBhZhCJFjvlqOm1IM3TlqQZH24Tm7OZGXFd/FBYPv
+        SZWhtCagH+Fc8fvj2S6d98qJLwYnN99xpOYF2kDaQnIJuXpyFN8hfcKhsXO6AZtA
+        LJwF+k1A3J9bKKjYPDJBIGMU5j8=
+        -----END CERTIFICATE-----
+        </ca>
+        EOF
+        
+        # Crear archivo de credenciales
+        echo "$PROTON_USERNAME" > proton-auth.txt
+        echo "$PROTON_PASSWORD" >> proton-auth.txt
+        
+        echo "✅ Archivo de configuración ProtonVPN creado"
+    
+    - name: 🇨🇱 Conectar ProtonVPN Chile
+      run: |
+        echo "🔗 Conectando a ProtonVPN Chile..."
+        
+        # Iniciar OpenVPN en background
+        sudo openvpn --config proton-chile.ovpn --auth-user-pass proton-auth.txt --daemon --log /tmp/openvpn.log
+        
+        # Esperar conexión
+        echo "⏳ Esperando conexión VPN..."
+        sleep 30
+        
+        # Verificar conexión por hasta 60 segundos
+        for i in {1..12}; do
+          if ip addr show tun0 &>/dev/null; then
+            echo "✅ Interface VPN (tun0) detectada"
+            break
+          fi
+          echo "⏳ Esperando interface VPN... (intento $i/12)"
+          sleep 5
+        done
+        
+        # Mostrar estado
+        ip addr show tun0 || echo "⚠️ Interface tun0 no encontrada"
+        
+        # Verificar logs
+        echo "📋 Logs OpenVPN:"
+        tail -10 /tmp/openvpn.log || echo "No hay logs disponibles"
+    
+    - name: 🧪 Verificar IP Chilena
+      run: |
+        echo "🧪 Verificando nueva IP..."
+        
+        # Esperar un poco más para asegurar conexión
+        sleep 10
+        
+        # Verificar IP
+        NEW_IP=$(curl -s --max-time 10 ipinfo.io/json || echo '{"error": "timeout"}')
+        echo "📍 Nueva IP info:"
+        echo "$NEW_IP" | jq '.' || echo "$NEW_IP"
+        
+        # Verificar país
+        COUNTRY=$(echo "$NEW_IP" | jq -r '.country // "UNKNOWN"')
+        echo "🏢 País detectado: $COUNTRY"
+        
+        if [ "$COUNTRY" = "CL" ]; then
+          echo "🇨🇱 ¡ÉXITO! IP chilena confirmada"
+        else
+          echo "❌ Error: IP no es chilena (País: $COUNTRY)"
+          echo "🔍 Verificando logs OpenVPN..."
+          tail -20 /tmp/openvpn.log || echo "No logs disponibles"
+          exit 1
+        fi
+    
+    - name: 🔓 Test acceso Salvum
+      run: |
+        echo "🔍 Probando acceso a Salvum con IP chilena..."
+        
+        SALVUM_RESPONSE=$(curl -s -I --max-time 15 https://prescriptores.salvum.cl/login || echo "ERROR: timeout")
+        echo "📊 Respuesta Salvum:"
+        echo "$SALVUM_RESPONSE"
+        
+        if echo "$SALVUM_RESPONSE" | grep -q "200 OK"; then
+          echo "✅ ¡ÉXITO! Salvum accesible (200 OK)"
+        elif echo "$SALVUM_RESPONSE" | grep -q "403"; then
+          echo "❌ Error: Salvum aún bloquea (403 Forbidden)"
+          echo "💡 Puede que la VPN no esté funcionando correctamente"
+          exit 1
+        else
+          echo "⚠️ Respuesta inesperada de Salvum"
+          echo "$SALVUM_RESPONSE"
+        fi
+    
+    - name: 🤖 Ejecutar automatización Salvum
+      if: ${{ github.event.inputs.test_mode != 'true' }}
+      run: |
+        echo "🚀 Ejecutando automatización completa de Salvum..."
+        echo "🧪 Modo test: ${{ github.event.inputs.test_mode }}"
+        echo "👤 Agente específico: ${{ github.event.inputs.agente_especifico }}"
+        
+        # Ejecutar automatización
+        python salvum_automation_mejorado.py
+      timeout-minutes: 90
+    
+    - name: 🧪 Solo test de login (modo test)
+      if: ${{ github.event.inputs.test_mode == 'true' }}
+      run: |
+        echo "🧪 Ejecutando solo test de login..."
+        
+        python -c "
+        import os
+        import sys
+        import time
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.chrome.service import Service
+        from selenium.webdriver.common.keys import Keys
+        from webdriver_manager.chrome import ChromeDriverManager
+        
+        print('🔧 Configurando navegador para test...')
+        options = Options()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--window-size=1920,1080')
+        
+        try:
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+            
+            print('🔗 Accediendo a Salvum...')
+            driver.get('https://prescriptores.salvum.cl/login')
+            time.sleep(5)
+            
+            titulo = driver.title
+            url = driver.current_url
+            print(f'📄 Título: {titulo}')
+            print(f'📍 URL: {url}')
+            
+            driver.save_screenshot('test_salvum_chile.png')
+            print('📸 Screenshot guardado')
+            
+            # Buscar campos de login
+            campos_texto = driver.find_elements(By.CSS_SELECTOR, 'input[type=\"text\"]')
+            campos_password = driver.find_elements(By.CSS_SELECTOR, 'input[type=\"password\"]')
+            
+            if campos_texto and campos_password:
+                print(f'✅ Campos de login encontrados: {len(campos_texto)} texto, {len(campos_password)} password')
+                print('🎉 ¡Test de acceso exitoso con ProtonVPN!')
+            else:
+                print('❌ No se encontraron campos de login')
+            
+            driver.quit()
+            
+        except Exception as e:
+            print(f'❌ Error en test: {e}')
+            sys.exit(1)
+        "
+    
+    - name: 🔌 Desconectar VPN
+      if: always()
+      run: |
+        echo "🔌 Desconectando ProtonVPN..."
+        sudo pkill openvpn || echo "OpenVPN ya estaba detenido"
+        
+        # Verificar desconexión
+        sleep 5
+        FINAL_IP=$(curl -s --max-time 10 ipinfo.io/json || echo '{"error": "timeout"}')
+        echo "📍 IP final:"
+        echo "$FINAL_IP" | jq '.' || echo "$FINAL_IP"
+    
+    - name: 📊 Subir resultados
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: salvum-protonvpn-results-${{ github.run_number }}
+        path: |
+          *.png
+          *.json
+          *.log
+          *.html
+          /tmp/openvpn.log
+        retention-days: 7
+    
+    - name: 📋 Resumen final
+      if: always()
+      run: |
+        echo "📋 RESUMEN EJECUCIÓN CON PROTONVPN"
+        echo "=================================="
+        echo "🕐 Timestamp: $(date)"
+        echo "🧪 Modo test: ${{ github.event.inputs.test_mode }}"
+        echo "👤 Agente específico: ${{ github.event.inputs.agente_especifico }}"
+        echo ""
+        echo "📁 Archivos generados:"
+        ls -la *.png *.json *.log 2>/dev/null || echo "No se generaron archivos"
+        echo ""
+        echo "💡 VENTAJAS DE ESTA SOLUCIÓN:"
+        echo "   ✅ Usa tu ProtonVPN pagada"
+        echo "   ✅ Se ejecuta en GitHub Actions"
+        echo "   ✅ No necesita VM separada"
+        echo "   ✅ Totalmente automático"
+        echo "   ✅ Sin costos adicionales"
+        echo "=================================="
