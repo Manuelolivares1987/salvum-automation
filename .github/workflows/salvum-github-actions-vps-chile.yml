@@ -232,12 +232,13 @@ jobs:
     - name: 🧪 Solo test de login (modo test)
       if: ${{ github.event.inputs.test_mode == 'true' }}
       run: |
-        echo "🧪 Ejecutando solo test de login con VPS Chile..."
+        echo "🧪 Ejecutando test optimizado con VPS Chile..."
         
         python -c "
         import os
         import sys
         import time
+        import random
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
         from selenium.webdriver.common.by import By
@@ -245,7 +246,7 @@ jobs:
         from selenium.webdriver.common.keys import Keys
         from webdriver_manager.chrome import ChromeDriverManager
         
-        print('🔧 Configurando navegador con proxy SOCKS...')
+        print('🔧 Configurando navegador optimizado con proxy SOCKS...')
         options = Options()
         options.add_argument('--headless')
         options.add_argument('--no-sandbox')
@@ -253,56 +254,140 @@ jobs:
         options.add_argument('--disable-gpu')
         options.add_argument('--window-size=1920,1080')
         
-        # Configurar proxy SOCKS para Chrome
+        # Proxy SOCKS
         options.add_argument('--proxy-server=socks5://localhost:8080')
         options.add_argument('--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost')
+        
+        # Anti-detección avanzada
+        options.add_argument('--disable-blink-features=AutomationControlled')
+        options.add_argument('--disable-extensions')
+        options.add_argument('--disable-plugins')
+        options.add_argument('--disable-images')  # Más rápido
+        options.add_experimental_option('excludeSwitches', ['enable-automation'])
+        options.add_experimental_option('useAutomationExtension', False)
+        
+        # User agent chileno realista
+        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         
         try:
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
             
-            # Verificar IP del navegador
+            # Script anti-detección
+            driver.execute_script('Object.defineProperty(navigator, \"webdriver\", {get: () => undefined})')
+            
             print('🔍 Verificando IP del navegador...')
             driver.get('https://ipinfo.io/json')
-            time.sleep(3)
+            time.sleep(2)
             ip_info = driver.find_element(By.TAG_NAME, 'pre').text
             print(f'📍 IP del navegador: {ip_info}')
             
-            print('🔗 Accediendo a Salvum...')
+            # Espera aleatoria para simular comportamiento humano
+            wait_time = random.uniform(3, 7)
+            print(f'⏳ Esperando {wait_time:.1f}s (comportamiento humano)...')
+            time.sleep(wait_time)
+            
+            print('🔗 Accediendo a Salvum (intento optimizado)...')
             driver.get('https://prescriptores.salvum.cl/login')
+            
+            # Esperar carga completa
             time.sleep(8)
             
             titulo = driver.title
             url = driver.current_url
+            page_source = driver.page_source
+            
             print(f'📄 Título: {titulo}')
             print(f'📍 URL: {url}')
+            print(f'📊 Tamaño HTML: {len(page_source)} bytes')
             
-            driver.save_screenshot('test_salvum_vps_chile.png')
-            print('📸 Screenshot guardado')
-            
-            # Buscar campos de login
-            campos_texto = driver.find_elements(By.CSS_SELECTOR, 'input[type=\"text\"], input[name*=\"usuario\"], input[name*=\"email\"]')
-            campos_password = driver.find_elements(By.CSS_SELECTOR, 'input[type=\"password\"]')
-            
-            if campos_texto and campos_password:
-                print(f'✅ Campos de login encontrados: {len(campos_texto)} texto, {len(campos_password)} password')
-                print('🎉 ¡Test de acceso exitoso con VPS Chile!')
+            # Análisis detallado
+            if 'bbva' in titulo.lower():
+                print('❌ REDIRIGIDO A BBVA - Detección de datacenter/bot')
+                resultado = 'BBVA_REDIRECT'
+            elif 'salvum' in page_source.lower() or 'ob forum' in titulo.lower():
+                print('✅ ¡ACCESO EXITOSO A SALVUM!')
+                resultado = 'SUCCESS'
+                
+                # Buscar campos de login
+                campos_texto = driver.find_elements(By.CSS_SELECTOR, 'input[type=\"text\"], input[type=\"email\"], input[name*=\"usuario\"], input[id*=\"usuario\"]')
+                campos_password = driver.find_elements(By.CSS_SELECTOR, 'input[type=\"password\"]')
+                
+                print(f'🔍 Campos texto encontrados: {len(campos_texto)}')
+                print(f'🔍 Campos password encontrados: {len(campos_password)}')
+                
+                if len(campos_texto) >= 1 and len(campos_password) >= 1:
+                    print('✅ FORMULARIO DE LOGIN COMPLETO ENCONTRADO')
+                    resultado = 'FULL_SUCCESS'
+                    
+                    # Probar login si tenemos credenciales
+                    usuario = os.getenv('SALVUM_USER')
+                    password = os.getenv('SALVUM_PASS')
+                    
+                    if usuario and password:
+                        print('🔐 Probando login real...')
+                        try:
+                            campos_texto[0].clear()
+                            time.sleep(1)
+                            campos_texto[0].send_keys(usuario)
+                            time.sleep(1)
+                            campos_password[0].clear()
+                            time.sleep(1)
+                            campos_password[0].send_keys(password)
+                            time.sleep(1)
+                            campos_password[0].send_keys(Keys.RETURN)
+                            
+                            # Esperar respuesta
+                            time.sleep(10)
+                            
+                            new_url = driver.current_url
+                            new_title = driver.title
+                            
+                            print(f'📍 URL post-login: {new_url}')
+                            print(f'📄 Título post-login: {new_title}')
+                            
+                            if new_url != url or 'dashboard' in new_url.lower():
+                                print('🎉 ¡LOGIN EXITOSO!')
+                                resultado = 'LOGIN_SUCCESS'
+                                driver.save_screenshot('salvum_login_exitoso.png')
+                            else:
+                                print('⚠️ Login sin cambio de URL')
+                                driver.save_screenshot('salvum_login_sin_cambio.png')
+                                
+                        except Exception as e:
+                            print(f'⚠️ Error en login: {e}')
+                    else:
+                        print('ℹ️ Sin credenciales para test de login')
+                else:
+                    print('⚠️ Formulario incompleto')
             else:
-                print('❌ No se encontraron campos de login')
-                # Guardar HTML para debug
-                with open('salvum_page.html', 'w', encoding='utf-8') as f:
-                    f.write(driver.page_source)
-                print('📝 HTML guardado para debug')
+                print('❓ Contenido desconocido')
+                resultado = 'UNKNOWN'
             
-            driver.quit()
+            # Guardar evidencia
+            driver.save_screenshot('test_salvum_optimizado.png')
+            with open('salvum_optimizado.html', 'w', encoding='utf-8') as f:
+                f.write(page_source)
+            
+            print(f'📊 RESULTADO FINAL: {resultado}')
+            
+            if resultado in ['SUCCESS', 'FULL_SUCCESS', 'LOGIN_SUCCESS']:
+                print('🎉 ¡ÉXITO! VPS + Navegador optimizado funciona')
+                exit(0)
+            else:
+                print('❌ Aún hay problemas que resolver')
+                exit(1)
             
         except Exception as e:
             print(f'❌ Error en test: {e}')
             if 'driver' in locals():
-                driver.save_screenshot('error_salvum_vps.png')
-                with open('error_page.html', 'w', encoding='utf-8') as f:
+                driver.save_screenshot('error_salvum_optimizado.png')
+                with open('error_optimizado.html', 'w', encoding='utf-8') as f:
                     f.write(driver.page_source)
             sys.exit(1)
+        finally:
+            if 'driver' in locals():
+                driver.quit()
         "
     
     - name: 🔌 Cerrar túnel SSH
