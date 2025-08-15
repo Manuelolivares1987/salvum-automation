@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-TEST DIAGNÓSTICO SALVUM - Identificar bloqueos específicos
+SALVUM AUTOMATION CON VPS CHILE - Diagnóstico Completo y Automatización
+Usando túnel SOCKS al VPS chileno (45.7.230.109)
 """
 import os
 import time
@@ -20,47 +21,124 @@ from webdriver_manager.chrome import ChromeDriverManager
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def test_diagnostico_completo():
-    """Test diagnóstico completo para identificar problemas específicos"""
-    logger.info("🔍 DIAGNÓSTICO COMPLETO DE ACCESO A SALVUM")
+# Configuración del proxy SOCKS al VPS Chile
+SOCKS_PROXY = "socks5://localhost:8080"
+VPS_IP_ESPERADA = "45.7.230.109"  # IP de tu VPS
+
+def configurar_requests_con_proxy():
+    """Configurar requests para usar el proxy SOCKS del VPS Chile"""
+    proxies = {
+        'http': SOCKS_PROXY,
+        'https': SOCKS_PROXY
+    }
+    return proxies
+
+def configurar_chrome_con_proxy():
+    """Configurar Chrome para usar el proxy SOCKS del VPS Chile"""
+    options = Options()
+    
+    # Configuración básica
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--window-size=1920,1080')
+    
+    # ⭐ CONFIGURACIÓN PROXY SOCKS PARA VPS CHILE ⭐
+    options.add_argument(f'--proxy-server={SOCKS_PROXY}')
+    options.add_argument('--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost')
+    
+    # User agent chileno realista
+    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    options.add_argument('--lang=es-CL')
+    options.add_argument('--accept-language=es-CL,es;q=0.9,en;q=0.8')
+    
+    # Anti-detección
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    
+    # Crear driver
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
+    
+    # Script anti-detección
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    
+    return driver
+
+def verificar_conexion_vps():
+    """Verificar que estamos conectados correctamente al VPS Chile"""
+    logger.info("🔍 VERIFICANDO CONEXIÓN AL VPS CHILE")
+    logger.info("-" * 50)
+    
+    try:
+        proxies = configurar_requests_con_proxy()
+        
+        # Verificar IP
+        response = requests.get('https://ipinfo.io/json', 
+                              proxies=proxies, 
+                              timeout=15)
+        ip_data = response.json()
+        
+        ip_actual = ip_data.get('ip')
+        pais = ip_data.get('country')
+        ciudad = ip_data.get('city')
+        
+        logger.info(f"📍 IP actual: {ip_actual}")
+        logger.info(f"🏢 País: {pais}")
+        logger.info(f"🏙️ Ciudad: {ciudad}")
+        
+        # Verificar que es nuestro VPS
+        if ip_actual == VPS_IP_ESPERADA:
+            logger.info(f"✅ PERFECTO: Usando VPS chileno ({VPS_IP_ESPERADA})")
+        else:
+            logger.warning(f"⚠️ IP diferente a la esperada. Esperada: {VPS_IP_ESPERADA}, Actual: {ip_actual}")
+        
+        # Verificar que es Chile
+        if pais == 'CL':
+            logger.info("🇨🇱 ✅ CONFIRMADO: Conexión desde Chile")
+            return True, ip_data
+        else:
+            logger.error(f"❌ ERROR: No estamos en Chile. País detectado: {pais}")
+            return False, ip_data
+            
+    except Exception as e:
+        logger.error(f"❌ Error verificando conexión VPS: {e}")
+        return False, {'error': str(e)}
+
+def test_diagnostico_con_vps():
+    """Test diagnóstico completo usando el VPS chileno"""
+    logger.info("🔍 DIAGNÓSTICO COMPLETO VIA VPS CHILE")
     logger.info("=" * 70)
     
     resultados = {
         'timestamp': datetime.now().isoformat(),
+        'vps_ip': VPS_IP_ESPERADA,
         'tests': {},
         'recomendaciones': []
     }
     
-    # TEST 1: Verificación de red básica
-    logger.info("\n🌐 TEST 1: VERIFICACIÓN DE RED BÁSICA")
+    # TEST 1: Verificación de conexión VPS
+    logger.info("\n🔗 TEST 1: VERIFICACIÓN CONEXIÓN VPS")
     logger.info("-" * 40)
     
-    try:
-        # IP y ubicación
-        response = requests.get('https://ipinfo.io/json', timeout=10)
-        ip_data = response.json()
-        
-        logger.info(f"📍 IP: {ip_data.get('ip')}")
-        logger.info(f"🏙️ Ciudad: {ip_data.get('city')}")
-        logger.info(f"🏢 País: {ip_data.get('country')}")
-        logger.info(f"🏢 ISP: {ip_data.get('org')}")
-        logger.info(f"🌍 Región: {ip_data.get('region')}")
-        
-        resultados['tests']['ip_info'] = ip_data
-        
-        # ¿Es Chile?
-        es_chile = ip_data.get('country') == 'CL'
-        logger.info(f"🇨🇱 Acceso desde Chile: {'✅ SÍ' if es_chile else '❌ NO'}")
-        
-        if not es_chile:
-            resultados['recomendaciones'].append("CRÍTICO: Acceso desde fuera de Chile - probable bloqueo geográfico")
-            
-    except Exception as e:
-        logger.error(f"❌ Error verificando IP: {e}")
-        resultados['tests']['ip_info'] = {'error': str(e)}
+    vps_ok, ip_data = verificar_conexion_vps()
+    resultados['tests']['vps_connection'] = {
+        'success': vps_ok,
+        'ip_data': ip_data
+    }
     
-    # TEST 2: Conectividad HTTP a Salvum
-    logger.info("\n🔗 TEST 2: CONECTIVIDAD HTTP A SALVUM")
+    if not vps_ok:
+        logger.error("❌ CRÍTICO: No se puede usar el VPS Chile")
+        resultados['problema_principal'] = 'VPS_CONNECTION_FAILED'
+        return resultados
+    
+    # Configurar proxies para el resto de tests
+    proxies = configurar_requests_con_proxy()
+    
+    # TEST 2: Conectividad HTTP a Salvum via VPS
+    logger.info("\n🔗 TEST 2: CONECTIVIDAD HTTP A SALVUM VIA VPS")
     logger.info("-" * 40)
     
     urls_test = [
@@ -73,7 +151,10 @@ def test_diagnostico_completo():
     for url in urls_test:
         try:
             logger.info(f"Probando: {url}")
-            response = requests.get(url, timeout=15, allow_redirects=True)
+            response = requests.get(url, 
+                                  proxies=proxies, 
+                                  timeout=20, 
+                                  allow_redirects=True)
             
             logger.info(f"  📊 Código: {response.status_code}")
             logger.info(f"  📍 URL final: {response.url}")
@@ -83,21 +164,21 @@ def test_diagnostico_completo():
             contenido = response.text.lower()
             
             if response.status_code == 403:
-                logger.error(f"  ❌ BLOQUEADO (403) - Acceso denegado")
-                resultados['recomendaciones'].append(f"BLOQUEADO: {url} devuelve 403 - restricción geográfica/IP")
+                logger.error(f"  ❌ BLOQUEADO (403) - Aún con IP chilena!")
+                resultados['recomendaciones'].append(f"BLOQUEADO: {url} devuelve 403 incluso con VPS Chile")
                 
             elif response.status_code == 200:
                 if 'salvum' in contenido:
                     logger.info(f"  ✅ ACCESO OK - Contenido Salvum detectado")
                 elif 'bbva' in contenido:
-                    logger.warning(f"  ⚠️ REDIRIGIDO A BBVA")
-                    resultados['recomendaciones'].append("REDIRIGIDO: Salvum redirige a BBVA - posible bloqueo")
+                    logger.warning(f"  ⚠️ REDIRIGIDO A BBVA (aún con IP chilena)")
+                    resultados['recomendaciones'].append("REDIRIGIDO: Aún redirige a BBVA con IP chilena")
                 else:
                     logger.warning(f"  ⚠️ Contenido desconocido")
             else:
                 logger.warning(f"  ⚠️ Código inesperado: {response.status_code}")
             
-            resultados['tests'][f'http_{url}'] = {
+            resultados['tests'][f'http_vps_{url}'] = {
                 'status_code': response.status_code,
                 'final_url': response.url,
                 'content_size': len(response.content),
@@ -106,76 +187,72 @@ def test_diagnostico_completo():
             
         except Exception as e:
             logger.error(f"  ❌ Error: {e}")
-            resultados['tests'][f'http_{url}'] = {'error': str(e)}
+            resultados['tests'][f'http_vps_{url}'] = {'error': str(e)}
     
-    # TEST 3: Headers y User Agent
-    logger.info("\n🌐 TEST 3: HEADERS Y USER AGENT")
+    # TEST 3: Headers específicos con VPS
+    logger.info("\n🌐 TEST 3: HEADERS CHILENOS VIA VPS")
     logger.info("-" * 40)
     
-    headers_test = [
-        # Headers normales
-        {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        },
-        # Headers "chilenos"
-        {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'es-CL,es;q=0.9,en;q=0.8',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+    headers_chilenos = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'es-CL,es;q=0.9,en;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+    }
+    
+    try:
+        logger.info("Probando con headers chilenos optimizados...")
+        response = requests.get('https://prescriptores.salvum.cl/login', 
+                              headers=headers_chilenos,
+                              proxies=proxies, 
+                              timeout=20, 
+                              allow_redirects=True)
+        
+        logger.info(f"  📊 Resultado: {response.status_code}")
+        logger.info(f"  📍 URL final: {response.url}")
+        
+        resultados['tests']['headers_chilenos_vps'] = {
+            'status_code': response.status_code,
+            'final_url': response.url,
+            'headers_sent': headers_chilenos
         }
-    ]
+        
+    except Exception as e:
+        logger.error(f"  ❌ Error con headers chilenos: {e}")
     
-    for i, headers in enumerate(headers_test, 1):
-        try:
-            logger.info(f"Probando headers set {i}...")
-            response = requests.get('https://prescriptores.salvum.cl/login', 
-                                  headers=headers, timeout=15, allow_redirects=True)
-            
-            logger.info(f"  📊 Resultado: {response.status_code}")
-            logger.info(f"  📍 URL final: {response.url}")
-            
-            resultados['tests'][f'headers_set_{i}'] = {
-                'status_code': response.status_code,
-                'final_url': response.url,
-                'headers_sent': headers
-            }
-            
-        except Exception as e:
-            logger.error(f"  ❌ Error con headers {i}: {e}")
-    
-    # TEST 4: Test con Selenium (más realista)
-    logger.info("\n🤖 TEST 4: ACCESO CON NAVEGADOR (SELENIUM)")
+    # TEST 4: Test con Selenium via VPS
+    logger.info("\n🤖 TEST 4: ACCESO CON NAVEGADOR VIA VPS")
     logger.info("-" * 40)
     
     driver = None
     try:
-        # Configurar Chrome
-        options = Options()
-        options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--window-size=1920,1080')
+        driver = configurar_chrome_con_proxy()
         
-        # User agent chileno
-        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-        options.add_argument('--lang=es-CL')
-        options.add_argument('--accept-language=es-CL,es;q=0.9,en;q=0.8')
+        # Verificar IP del navegador
+        logger.info("🔍 Verificando IP del navegador...")
+        driver.get("https://ipinfo.io/json")
+        time.sleep(3)
         
-        # Anti-detección básica
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
+        try:
+            ip_browser = driver.find_element(By.TAG_NAME, 'pre').text
+            ip_data_browser = json.loads(ip_browser)
+            logger.info(f"📍 IP navegador: {ip_data_browser.get('ip')}")
+            logger.info(f"🏢 País navegador: {ip_data_browser.get('country')}")
+            
+            if ip_data_browser.get('ip') == VPS_IP_ESPERADA:
+                logger.info("✅ Navegador usando VPS correctamente")
+            else:
+                logger.warning("⚠️ Navegador no usa la IP del VPS")
+                
+        except Exception as e:
+            logger.warning(f"No se pudo verificar IP del navegador: {e}")
         
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
-        
-        # Script anti-detección
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        
-        logger.info("Accediendo con navegador...")
+        logger.info("🔗 Accediendo a Salvum con navegador...")
         driver.get("https://prescriptores.salvum.cl/login")
-        time.sleep(8)
+        time.sleep(10)
         
         url_final = driver.current_url
         titulo = driver.title
@@ -186,39 +263,56 @@ def test_diagnostico_completo():
         logger.info(f"📊 HTML size: {html_size}")
         
         # Guardar screenshot
-        driver.save_screenshot('diagnostico_selenium.png')
+        driver.save_screenshot('salvum_vps_test.png')
         
         # Analizar contenido
         page_source = driver.page_source.lower()
         
         if "bbva" in titulo.lower():
-            logger.error("❌ REDIRIGIDO A BBVA - Bloqueo confirmado")
-            resultados['recomendaciones'].append("CONFIRMADO: Selenium también es redirigido a BBVA")
+            logger.error("❌ REDIRIGIDO A BBVA - Incluso con VPS Chile")
+            resultados['recomendaciones'].append("CRÍTICO: Aún redirige a BBVA con VPS Chile")
+            resultados['problema_principal'] = 'BBVA_REDIRECT_PERSISTENT'
         elif html_size < 5000:
             logger.error("❌ PÁGINA MUY PEQUEÑA - Posible bloqueo")
+            resultados['problema_principal'] = 'PAGE_TOO_SMALL'
         elif "salvum" in page_source or "login" in page_source:
-            logger.info("✅ ACCESO EXITOSO CON SELENIUM")
+            logger.info("✅ ACCESO EXITOSO CON VPS + SELENIUM")
             
-            # Test básico de campos
+            # Test de campos de login
             try:
-                campos_login = driver.find_elements(By.CSS_SELECTOR, "input[type='text'], input[type='password']")
-                logger.info(f"🔍 Campos de login encontrados: {len(campos_login)}")
+                campos_login = driver.find_elements(By.CSS_SELECTOR, 
+                    "input[type='text'], input[type='email'], input[name*='usuario'], input[name*='email']")
+                campos_password = driver.find_elements(By.CSS_SELECTOR, "input[type='password']")
                 
-                if len(campos_login) >= 2:
-                    logger.info("✅ Formulario de login disponible")
+                logger.info(f"🔍 Campos texto encontrados: {len(campos_login)}")
+                logger.info(f"🔍 Campos password encontrados: {len(campos_password)}")
+                
+                if len(campos_login) >= 1 and len(campos_password) >= 1:
+                    logger.info("✅ FORMULARIO DE LOGIN DISPONIBLE")
+                    resultados['problema_principal'] = 'SUCCESS'
+                    
+                    # Intentar login real si tenemos credenciales
+                    if os.getenv('SALVUM_USER') and os.getenv('SALVUM_PASS'):
+                        logger.info("🔐 Intentando login real...")
+                        resultado_login = intentar_login_salvum(driver)
+                        resultados['tests']['login_real'] = resultado_login
+                    else:
+                        logger.info("ℹ️ Sin credenciales para test de login")
                 else:
-                    logger.warning("⚠️ Formulario incompleto o no encontrado")
+                    logger.warning("⚠️ Formulario incompleto")
+                    resultados['problema_principal'] = 'INCOMPLETE_FORM'
                     
             except Exception as e:
                 logger.error(f"Error verificando campos: {e}")
         else:
             logger.warning("❓ Contenido desconocido")
+            resultados['problema_principal'] = 'UNKNOWN_CONTENT'
         
         # Guardar HTML para análisis
-        with open('diagnostico_page.html', 'w', encoding='utf-8') as f:
+        with open('salvum_vps_page.html', 'w', encoding='utf-8') as f:
             f.write(driver.page_source)
         
-        resultados['tests']['selenium'] = {
+        resultados['tests']['selenium_vps'] = {
             'final_url': url_final,
             'title': titulo,
             'html_size': html_size,
@@ -226,13 +320,13 @@ def test_diagnostico_completo():
         }
         
     except Exception as e:
-        logger.error(f"❌ Error con Selenium: {e}")
-        resultados['tests']['selenium'] = {'error': str(e)}
+        logger.error(f"❌ Error con Selenium + VPS: {e}")
+        resultados['tests']['selenium_vps'] = {'error': str(e)}
     finally:
         if driver:
             driver.quit()
     
-    # TEST 5: Verificar credenciales (sin usarlas)
+    # TEST 5: Verificar credenciales
     logger.info("\n🔐 TEST 5: VERIFICACIÓN DE CREDENCIALES")
     logger.info("-" * 40)
     
@@ -254,96 +348,257 @@ def test_diagnostico_completo():
     }
     
     if not usuario or not password:
-        resultados['recomendaciones'].append("CONFIGURACIÓN: Verificar que las credenciales estén configuradas correctamente")
-    
-    # ANÁLISIS FINAL Y RECOMENDACIONES
-    logger.info("\n📊 ANÁLISIS FINAL")
-    logger.info("=" * 70)
-    
-    # Determinar problema principal
-    if not ip_data.get('country') == 'CL':
-        logger.error("🚨 PROBLEMA PRINCIPAL: ACCESO DESDE FUERA DE CHILE")
-        logger.error("   Salvum está bloqueando geográficamente GitHub Actions")
-        resultados['problema_principal'] = 'BLOQUEO_GEOGRAFICO'
-        
-        logger.info("\n💡 SOLUCIONES POSIBLES:")
-        logger.info("   1. Usar un proxy/VPN chileno")
-        logger.info("   2. Usar un servidor en Chile")
-        logger.info("   3. Contactar a Salvum para whitelisting")
-        logger.info("   4. Ejecutar desde un servidor local chileno")
-        
-    elif resultados['tests'].get('selenium', {}).get('success'):
-        logger.info("✅ ACCESO BÁSICO FUNCIONA")
-        logger.info("   El problema puede estar en el proceso de login específico")
-        resultados['problema_principal'] = 'PROCESO_LOGIN'
-        
-    else:
-        logger.warning("❓ PROBLEMA DESCONOCIDO")
-        logger.info("   Revisar logs detallados para más información")
-        resultados['problema_principal'] = 'DESCONOCIDO'
-    
-    # Guardar resultados
-    with open('diagnostico_completo.json', 'w', encoding='utf-8') as f:
-        json.dump(resultados, f, indent=2, ensure_ascii=False)
-    
-    logger.info("\n💾 Diagnóstico completo guardado en 'diagnostico_completo.json'")
-    logger.info("📸 Screenshots guardados para análisis visual")
+        resultados['recomendaciones'].append("CONFIGURACIÓN: Verificar credenciales en GitHub Secrets")
     
     return resultados
 
+def intentar_login_salvum(driver):
+    """Intentar login real en Salvum"""
+    logger.info("🔐 INTENTANDO LOGIN REAL EN SALVUM")
+    logger.info("-" * 40)
+    
+    resultado = {
+        'intentado': True,
+        'exitoso': False,
+        'error': None,
+        'pasos': []
+    }
+    
+    try:
+        usuario = os.getenv('SALVUM_USER')
+        password = os.getenv('SALVUM_PASS')
+        
+        # Buscar campos de login
+        resultado['pasos'].append("Buscando campos de login...")
+        
+        # Intentar múltiples selectores para usuario
+        selectores_usuario = [
+            "input[type='text']",
+            "input[type='email']", 
+            "input[name*='usuario']",
+            "input[name*='email']",
+            "input[name*='user']",
+            "input[id*='usuario']",
+            "input[id*='email']"
+        ]
+        
+        campo_usuario = None
+        for selector in selectores_usuario:
+            try:
+                campo_usuario = driver.find_element(By.CSS_SELECTOR, selector)
+                if campo_usuario:
+                    logger.info(f"✅ Campo usuario encontrado: {selector}")
+                    break
+            except:
+                continue
+        
+        if not campo_usuario:
+            resultado['error'] = "No se encontró campo de usuario"
+            return resultado
+        
+        # Buscar campo password
+        try:
+            campo_password = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+            logger.info("✅ Campo password encontrado")
+        except:
+            resultado['error'] = "No se encontró campo de password"
+            return resultado
+        
+        # Limpiar y llenar campos
+        resultado['pasos'].append("Llenando credenciales...")
+        campo_usuario.clear()
+        time.sleep(1)
+        campo_usuario.send_keys(usuario)
+        
+        time.sleep(1)
+        campo_password.clear()
+        time.sleep(1)
+        campo_password.send_keys(password)
+        
+        # Buscar botón de login
+        resultado['pasos'].append("Buscando botón de login...")
+        selectores_boton = [
+            "button[type='submit']",
+            "input[type='submit']",
+            "button:contains('Ingresar')",
+            "button:contains('Login')",
+            "button:contains('Entrar')",
+            ".btn-primary",
+            ".btn-login"
+        ]
+        
+        boton_login = None
+        for selector in selectores_boton:
+            try:
+                boton_login = driver.find_element(By.CSS_SELECTOR, selector)
+                if boton_login:
+                    logger.info(f"✅ Botón login encontrado: {selector}")
+                    break
+            except:
+                continue
+        
+        if not boton_login:
+            # Intentar submit con Enter
+            resultado['pasos'].append("Intentando submit con Enter...")
+            campo_password.send_keys(Keys.RETURN)
+        else:
+            resultado['pasos'].append("Haciendo clic en botón de login...")
+            boton_login.click()
+        
+        # Esperar respuesta
+        resultado['pasos'].append("Esperando respuesta del login...")
+        time.sleep(8)
+        
+        # Verificar si el login fue exitoso
+        url_despues = driver.current_url
+        titulo_despues = driver.title
+        
+        logger.info(f"📍 URL después del login: {url_despues}")
+        logger.info(f"📄 Título después del login: {titulo_despues}")
+        
+        # Guardar screenshot después del login
+        driver.save_screenshot('salvum_after_login.png')
+        
+        # Verificar éxito
+        if "login" not in url_despues.lower() or "dashboard" in url_despues.lower():
+            logger.info("✅ LOGIN EXITOSO - URL cambió apropiadamente")
+            resultado['exitoso'] = True
+            resultado['pasos'].append("Login exitoso confirmado")
+        else:
+            logger.warning("⚠️ Login posiblemente fallido - URL no cambió")
+            resultado['pasos'].append("Login posiblemente fallido")
+        
+        resultado['url_final'] = url_despues
+        resultado['titulo_final'] = titulo_despues
+        
+    except Exception as e:
+        logger.error(f"❌ Error durante login: {e}")
+        resultado['error'] = str(e)
+        driver.save_screenshot('salvum_login_error.png')
+    
+    return resultado
+
+def ejecutar_automatizacion_completa():
+    """Ejecutar la automatización completa si el diagnóstico es exitoso"""
+    logger.info("🤖 EJECUTANDO AUTOMATIZACIÓN COMPLETA")
+    logger.info("-" * 50)
+    
+    driver = None
+    try:
+        driver = configurar_chrome_con_proxy()
+        
+        # Login
+        driver.get("https://prescriptores.salvum.cl/login")
+        time.sleep(8)
+        
+        resultado_login = intentar_login_salvum(driver)
+        
+        if not resultado_login['exitoso']:
+            logger.error("❌ No se pudo completar el login, abortando automatización")
+            return False
+        
+        logger.info("✅ Login exitoso, continuando con automatización...")
+        
+        # Aquí iría tu lógica específica de automatización
+        # Por ejemplo: navegar a secciones, extraer datos, etc.
+        
+        logger.info("🎉 AUTOMATIZACIÓN COMPLETADA EXITOSAMENTE")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error en automatización: {e}")
+        return False
+    finally:
+        if driver:
+            driver.quit()
+
 def generar_reporte_final(resultados):
     """Generar reporte final con recomendaciones específicas"""
-    logger.info("\n📋 REPORTE FINAL")
+    logger.info("\n📋 REPORTE FINAL - VPS CHILE")
     logger.info("=" * 70)
     
     problema = resultados.get('problema_principal', 'DESCONOCIDO')
+    vps_connection = resultados.get('tests', {}).get('vps_connection', {}).get('success', False)
     
-    if problema == 'BLOQUEO_GEOGRAFICO':
-        logger.info("🚨 DIAGNÓSTICO: BLOQUEO GEOGRÁFICO CONFIRMADO")
-        logger.info("   Salvum está bloqueando accesos desde fuera de Chile")
-        logger.info("\n🔧 ACCIONES RECOMENDADAS:")
-        logger.info("   1. INMEDIATA: Usar proxy chileno en el workflow")
-        logger.info("   2. MEDIANO PLAZO: Servidor en Chile para GitHub Actions")
-        logger.info("   3. LARGO PLAZO: Contactar Salvum para whitelist")
+    if not vps_connection:
+        logger.error("🚨 CRÍTICO: CONEXIÓN AL VPS CHILE FALLÓ")
+        logger.info("🔧 VERIFICAR:")
+        logger.info("   1. Túnel SSH está activo (puerto 8080)")
+        logger.info("   2. Credenciales del VPS son correctas")
+        logger.info("   3. Firewall no bloquea conexiones")
         
-    elif problema == 'PROCESO_LOGIN':
-        logger.info("✅ ACCESO BÁSICO: OK")
-        logger.info("❌ PROCESO LOGIN: FALLA")
-        logger.info("\n🔧 ACCIONES RECOMENDADAS:")
-        logger.info("   1. Revisar cambios en la UI de Salvum")
-        logger.info("   2. Verificar credenciales")
-        logger.info("   3. Ajustar selectores de campos")
+    elif problema == 'SUCCESS':
+        logger.info("🎉 ¡ÉXITO COMPLETO!")
+        logger.info("✅ VPS Chile funcionando correctamente")
+        logger.info("✅ Acceso a Salvum confirmado")
+        logger.info("✅ Formulario de login disponible")
+        
+    elif problema == 'BBVA_REDIRECT_PERSISTENT':
+        logger.error("🚨 PROBLEMA: AÚN REDIRIGE A BBVA")
+        logger.info("   Incluso con IP chilena, Salvum redirige a BBVA")
+        logger.info("🔧 POSIBLES CAUSAS:")
+        logger.info("   1. Bloqueo por User-Agent de automatización")
+        logger.info("   2. Restricciones adicionales (hora, etc.)")
+        logger.info("   3. Problema temporal en Salvum")
         
     else:
-        logger.info("❓ DIAGNÓSTICO: REQUIERE ANÁLISIS ADICIONAL")
-        logger.info("\n🔧 ACCIONES RECOMENDADAS:")
-        logger.info("   1. Revisar archivos de diagnóstico generados")
-        logger.info("   2. Verificar conectividad desde otro entorno")
-        logger.info("   3. Contactar soporte técnico")
+        logger.warning(f"❓ PROBLEMA: {problema}")
+        logger.info("🔧 REVISAR archivos de diagnóstico generados")
+    
+    logger.info(f"\n📊 VPS IP utilizada: {VPS_IP_ESPERADA}")
+    logger.info(f"🕐 Timestamp: {resultados.get('timestamp')}")
     
     logger.info("\n📁 ARCHIVOS GENERADOS:")
-    logger.info("   📊 diagnostico_completo.json - Resultados detallados")
-    logger.info("   📸 diagnostico_selenium.png - Screenshot del navegador")
-    logger.info("   📄 diagnostico_page.html - HTML de la página")
+    logger.info("   📊 diagnostico_vps_completo.json - Resultados detallados")
+    logger.info("   📸 salvum_vps_test.png - Screenshot acceso")
+    logger.info("   📄 salvum_vps_page.html - HTML de la página")
+    logger.info("   📸 salvum_after_login.png - Screenshot post-login (si aplica)")
 
-if __name__ == "__main__":
-    print("🔍 DIAGNÓSTICO COMPLETO DE ACCESO A SALVUM")
+def main():
+    """Función principal"""
+    print("🇨🇱 SALVUM AUTOMATION CON VPS CHILE")
     print("=" * 70)
-    print("Este script identificará el problema específico con el acceso a Salvum")
+    print(f"VPS IP: {VPS_IP_ESPERADA}")
+    print(f"Proxy: {SOCKS_PROXY}")
     print("=" * 70)
     
     try:
-        resultados = test_diagnostico_completo()
+        # Verificar si estamos en modo test
+        test_mode = os.getenv('TEST_MODE', 'false').lower() == 'true'
+        
+        if test_mode:
+            logger.info("🧪 MODO TEST - Solo diagnóstico")
+            resultados = test_diagnostico_con_vps()
+        else:
+            logger.info("🚀 MODO COMPLETO - Diagnóstico + Automatización")
+            resultados = test_diagnostico_con_vps()
+            
+            if resultados.get('problema_principal') == 'SUCCESS':
+                exito_automatizacion = ejecutar_automatizacion_completa()
+                resultados['automatizacion_exitosa'] = exito_automatizacion
+            else:
+                logger.warning("⚠️ Diagnóstico no exitoso, saltando automatización")
+        
+        # Guardar resultados
+        with open('diagnostico_vps_completo.json', 'w', encoding='utf-8') as f:
+            json.dump(resultados, f, indent=2, ensure_ascii=False)
+        
         generar_reporte_final(resultados)
         
+        # Códigos de salida
         problema = resultados.get('problema_principal', 'DESCONOCIDO')
-        if problema == 'BLOQUEO_GEOGRAFICO':
-            exit(1)  # Error code para bloqueo geográfico
-        elif problema == 'PROCESO_LOGIN':
-            exit(2)  # Error code para problemas de login
+        if problema == 'SUCCESS':
+            exit(0)  # Éxito
+        elif problema == 'VPS_CONNECTION_FAILED':
+            exit(1)  # Error de conexión VPS
+        elif problema == 'BBVA_REDIRECT_PERSISTENT':
+            exit(2)  # Redirigido a BBVA
         else:
-            exit(0)  # Éxito o problema desconocido
+            exit(3)  # Otros problemas
             
     except Exception as e:
-        logger.error(f"❌ Error en diagnóstico: {e}")
-        exit(3)  # Error general
+        logger.error(f"❌ Error general: {e}")
+        exit(4)  # Error general
+
+if __name__ == "__main__":
+    main()
