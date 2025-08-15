@@ -142,27 +142,77 @@ jobs:
           exit 1
         fi
     
-    - name: 🔓 Test acceso Salvum via VPS
+    - name: 🔓 Test acceso Salvum via VPS (HTTP + Navegador)
       run: |
-        echo "🔍 Probando acceso a Salvum con IP del VPS chileno..."
+        echo "🔍 TEST 1: Probando acceso HTTP con headers realistas..."
         
+        # Test con curl + headers de navegador real
         SALVUM_RESPONSE=$(curl -s -I --max-time 20 \
           --socks5-hostname localhost:8080 \
+          -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+          -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
+          -H "Accept-Language: es-CL,es;q=0.9,en;q=0.8" \
+          -H "Accept-Encoding: gzip, deflate, br" \
+          -H "DNT: 1" \
+          -H "Connection: keep-alive" \
+          -H "Upgrade-Insecure-Requests: 1" \
           https://prescriptores.salvum.cl/login || echo "ERROR: timeout")
         
-        echo "📊 Respuesta Salvum:"
+        echo "📊 Respuesta Salvum (con headers realistas):"
         echo "$SALVUM_RESPONSE"
         
-        if echo "$SALVUM_RESPONSE" | grep -q "200 OK"; then
-          echo "✅ ¡ÉXITO! Salvum accesible (200 OK)"
-        elif echo "$SALVUM_RESPONSE" | grep -q "403"; then
-          echo "❌ Error: Salvum aún bloquea (403 Forbidden)"
-          echo "💡 Verificar que la IP del VPS esté en Chile"
-          exit 1
-        else
-          echo "⚠️ Respuesta inesperada de Salvum"
-          echo "$SALVUM_RESPONSE"
-        fi
+        echo ""
+        echo "🤖 TEST 2: Probando con navegador Selenium..."
+        
+        python -c "
+        import time
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
+        from webdriver_manager.chrome import ChromeDriverManager
+        
+        print('🔧 Configurando Chrome con proxy...')
+        options = Options()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox') 
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--proxy-server=socks5://localhost:8080')
+        options.add_argument('--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost')
+        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+        
+        try:
+            print('🔗 Accediendo a Salvum con navegador...')
+            driver.get('https://prescriptores.salvum.cl/login')
+            time.sleep(8)
+            
+            url = driver.current_url
+            title = driver.title
+            status = 'SUCCESS' if 'salvum' in title.lower() or 'login' in driver.page_source.lower() else 'BLOCKED'
+            
+            print(f'📍 URL: {url}')
+            print(f'📄 Título: {title}')
+            print(f'📊 Estado: {status}')
+            
+            driver.save_screenshot('test_salvum_navegador.png')
+            
+            if status == 'SUCCESS':
+                print('✅ ¡ÉXITO! Salvum accesible con navegador + VPS')
+                exit(0)
+            else:
+                print('❌ Aún bloqueado incluso con navegador')
+                if 'bbva' in title.lower():
+                    print('🏦 Redirigido a BBVA - bloqueo confirmado')
+                exit(1)
+                
+        except Exception as e:
+            print(f'❌ Error: {e}')
+            exit(1)
+        finally:
+            driver.quit()
+        "
     
     - name: 🤖 Ejecutar automatización Salvum
       if: ${{ github.event.inputs.test_mode != 'true' }}
