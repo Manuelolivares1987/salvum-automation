@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-AUTOMATIZACIÓN SALVUM CON MÚLTIPLES PLANILLAS + VPS CHILE
+AUTOMATIZACIÓN SALVUM CON MÚLTIPLES PLANILLAS + VPS CHILE - VERSIÓN MEJORADA
 Procesa clientes de múltiples agentes automáticamente usando VPS chileno
 ESTRUCTURA CORREGIDA: Columnas separadas (C=Nombre, D=RUT, I=Monto, etc.)
+MEJORAS: Estados flexibles, verificación SOCKS robusta, login con reintentos
 """
 import os
 import time
 import json
 import logging
 import gspread
+import subprocess
+import socket
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -27,6 +30,12 @@ logger = logging.getLogger(__name__)
 # 🇨🇱 CONFIGURACIÓN VPS CHILE
 SOCKS_PROXY = "socks5://localhost:8080"
 VPS_IP_ESPERADA = "45.7.230.109"  # IP de tu VPS Chile
+
+# 🎯 ESTADOS VÁLIDOS PARA PROCESAR (MEJORA: Flexibilidad)
+ESTADOS_VALIDOS_PROCESAR = [
+    'NUEVO', 'PROCESAR', 'PENDIENTE', 'LISTO', 
+    'READY', 'AUTOMATIZAR', 'SI', 'YES', 'PROCESO'
+]
 
 class SalvumMultiplePlanillasConVPS:
     def __init__(self):
@@ -82,6 +91,50 @@ class SalvumMultiplePlanillasConVPS:
         except Exception as e:
             logger.error(f"❌ Error verificando conexión VPS: {e}")
             return False, {'error': str(e)}
+
+    def verificar_tunel_socks(self):
+        """🔧 MEJORA: Verificar túnel SOCKS antes de usar Selenium"""
+        logger.info("🔍 Verificando túnel SOCKS...")
+        
+        try:
+            # 1. Verificar proceso SSH
+            result = subprocess.run(['pgrep', '-f', 'ssh.*-D.*8080'], 
+                                  capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error("❌ Proceso SSH del túnel no encontrado")
+                return False
+            
+            logger.info(f"✅ Proceso SSH encontrado: PID {result.stdout.strip()}")
+            
+            # 2. Verificar puerto
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            result = sock.connect_ex(('localhost', 8080))
+            sock.close()
+            
+            if result != 0:
+                logger.error("❌ Puerto 8080 no está disponible")
+                return False
+            
+            logger.info("✅ Puerto 8080 escuchando")
+            
+            # 3. Verificar conectividad básica
+            import requests
+            proxies = {'http': SOCKS_PROXY, 'https': SOCKS_PROXY}
+            response = requests.get('https://ipinfo.io/json', 
+                                  proxies=proxies, timeout=10)
+            
+            if response.status_code == 200:
+                ip_data = response.json()
+                logger.info(f"✅ Túnel funcional - IP: {ip_data.get('ip')}, País: {ip_data.get('country')}")
+                return True
+            else:
+                logger.error("❌ Túnel no responde correctamente")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error verificando túnel: {e}")
+            return False
         
     def cargar_configuracion_agentes(self):
         """Cargar configuración de múltiples agentes desde config.json"""
@@ -158,7 +211,7 @@ class SalvumMultiplePlanillasConVPS:
             return False
     
     def leer_clientes_desde_planilla(self, sheet_id, nombre_agente):
-        """Leer clientes de una planilla específica - ESTRUCTURA REAL CORREGIDA"""
+        """🔧 MEJORA: Leer clientes con estados flexibles y mejor análisis"""
         logger.info(f"📖 Leyendo clientes de {nombre_agente}...")
         
         try:
@@ -167,8 +220,6 @@ class SalvumMultiplePlanillasConVPS:
             
             # ADAPTACIÓN: Buscar la hoja correcta
             worksheet = None
-            
-            # Intentar diferentes nombres de hoja
             nombres_hoja_posibles = [
                 'Mis_Clientes_Financiamiento',  # Tu hoja real
                 'sheet1',  # Fallback original
@@ -191,20 +242,40 @@ class SalvumMultiplePlanillasConVPS:
             
             # Obtener todos los datos
             records = worksheet.get_all_records()
-            
             logger.info(f"📊 Total registros en planilla: {len(records)}")
             
+            if not records:
+                logger.warning(f"⚠️ {nombre_agente}: Planilla vacía")
+                return []
+            
             # MOSTRAR HEADERS REALES PARA DEBUG
-            if records:
-                headers_reales = list(records[0].keys())
-                logger.info(f"📋 Headers encontrados: {headers_reales}")
+            headers_reales = list(records[0].keys())
+            logger.info(f"📋 Headers encontrados: {headers_reales}")
+            
+            # 🔧 MEJORA: Verificar columnas críticas
+            tiene_procesar = any('PROCESAR' in h.upper() for h in headers_reales)
+            tiene_renta = any('RENTA' in h.upper() and 'LIQUIDA' in h.upper() for h in headers_reales)
+            tiene_nombre = any('NOMBRE' in h.upper() and 'CLIENTE' in h.upper() for h in headers_reales)
+            
+            if not tiene_procesar:
+                logger.error(f"❌ {nombre_agente}: Falta columna PROCESAR")
+                return []
+            if not tiene_renta:
+                logger.error(f"❌ {nombre_agente}: Falta columna RENTA LIQUIDA")
+                return []
+            if not tiene_nombre:
+                logger.error(f"❌ {nombre_agente}: Falta columna Nombre Cliente")
+                return []
+            
+            logger.info("✅ Estructura de planilla válida")
+            logger.info(f"🎯 Estados válidos: {ESTADOS_VALIDOS_PROCESAR}")
             
             # Filtrar clientes listos para procesar
             clientes_procesar = []
             
             for i, record in enumerate(records, start=2):  # Start=2 porque row 1 son headers
                 # Verificar condiciones
-                renta_liquida = record.get('RENTA LIQUIDA', 0)
+                renta_liquida = record.get('RENTA LIQUIDA', 0) or record.get('RENTA LÍQUIDA', 0)
                 procesar = str(record.get('PROCESAR', '')).upper().strip()
                 
                 # Limpiar y convertir renta líquida
@@ -220,15 +291,28 @@ class SalvumMultiplePlanillasConVPS:
                 
                 logger.info(f"🔍 Fila {i}: PROCESAR='{procesar}', RENTA={renta_liquida}")
                 
-                # Verificar si está listo para procesar
-                if renta_liquida > 0 and procesar == 'NUEVO':
+                # 🔧 MEJORA: Verificar con estados flexibles
+                if renta_liquida > 0 and procesar in ESTADOS_VALIDOS_PROCESAR:
                     
                     # ESTRUCTURA REAL: Columnas separadas
                     nombre_cliente = record.get('Nombre Cliente', '')
                     rut_cliente = record.get('RUT', '')
                     
+                    # Validaciones adicionales
+                    if not nombre_cliente.strip():
+                        logger.warning(f"⚠️ Fila {i}: Nombre cliente vacío")
+                        continue
+                    
+                    if not rut_cliente.strip():
+                        logger.warning(f"⚠️ Fila {i}: RUT vacío")
+                        continue
+                    
                     # MONTO: Columna I (Monto Financiamiento)
                     monto_financiar = self._limpiar_numero(record.get('Monto Financiamiento', 0))
+                    
+                    if monto_financiar <= 0:
+                        logger.warning(f"⚠️ Fila {i}: Monto inválido: {monto_financiar}")
+                        continue
                     
                     cliente = {
                         'agente': nombre_agente,
@@ -242,26 +326,58 @@ class SalvumMultiplePlanillasConVPS:
                         'RENTA LIQUIDA': renta_liquida,
                         'Modelo Casa': record.get('Modelo Casa', ''),
                         'Precio Casa': self._limpiar_numero(record.get('Precio Casa', 0)),
-                        'Origen': record.get('Origen', '')  # Columna J
+                        'Origen': record.get('Origen', ''),  # Columna J
+                        'Estado Original': procesar  # Guardar estado original
                     }
                     clientes_procesar.append(cliente)
                     
-                    logger.info(f"  ✅ Cliente agregado: {nombre_cliente} (RUT: {rut_cliente}) - Monto: {monto_financiar}")
+                    logger.info(f"  ✅ Cliente agregado: {nombre_cliente} (RUT: {rut_cliente}) - Monto: {monto_financiar} - Estado: {procesar}")
             
             logger.info(f"✅ {nombre_agente}: {len(clientes_procesar)} clientes para procesar")
             
             if clientes_procesar:
                 for cliente in clientes_procesar:
-                    logger.info(f"  📋 {cliente['Nombre Cliente']} (RUT: {cliente['RUT']}) - Fila: {cliente['row_number']}")
+                    logger.info(f"  📋 {cliente['Nombre Cliente']} (RUT: {cliente['RUT']}) - Fila: {cliente['row_number']} - Estado: {cliente['Estado Original']}")
             else:
-                logger.warning(f"⚠️ {nombre_agente}: No se encontraron clientes con PROCESAR='NUEVO' y RENTA > 0")
-                logger.info("🔍 Verificando valores únicos en columna PROCESAR:")
-                valores_procesar = set()
+                # 🔧 MEJORA: Análisis detallado de por qué no hay clientes
+                logger.warning(f"⚠️ {nombre_agente}: No se encontraron clientes válidos")
+                logger.info("🔍 Análisis detallado:")
+                
+                estados_encontrados = {}
+                filas_con_renta = 0
+                
                 for record in records:
-                    procesar_val = str(record.get('PROCESAR', '')).strip()
-                    if procesar_val:
-                        valores_procesar.add(f"'{procesar_val}'")
-                logger.info(f"   Valores encontrados: {list(valores_procesar)}")
+                    # Contar estados
+                    estado = str(record.get('PROCESAR', '')).strip()
+                    if estado:
+                        estados_encontrados[estado] = estados_encontrados.get(estado, 0) + 1
+                    
+                    # Contar rentas
+                    renta = record.get('RENTA LIQUIDA', 0) or record.get('RENTA LÍQUIDA', 0)
+                    try:
+                        if isinstance(renta, str):
+                            renta_limpia = ''.join(c for c in renta if c.isdigit() or c in '.,')
+                            renta = float(renta_limpia.replace(',', '.')) if renta_limpia else 0
+                        else:
+                            renta = float(renta) if renta else 0
+                        if renta > 0:
+                            filas_con_renta += 1
+                    except:
+                        pass
+                
+                logger.info(f"   📊 Filas con renta > 0: {filas_con_renta}")
+                logger.info(f"   🎯 Estados válidos: {ESTADOS_VALIDOS_PROCESAR}")
+                logger.info(f"   📋 Estados encontrados:")
+                
+                for estado, cantidad in estados_encontrados.items():
+                    es_valido = "✅" if estado.upper() in ESTADOS_VALIDOS_PROCESAR else "❌"
+                    logger.info(f"     {es_valido} '{estado}': {cantidad} filas")
+                
+                if filas_con_renta > 0:
+                    logger.info("💡 SUGERENCIAS:")
+                    logger.info("   1. Cambiar valores en columna PROCESAR a uno de los estados válidos")
+                    logger.info(f"   2. Estados válidos: {', '.join(ESTADOS_VALIDOS_PROCESAR)}")
+                    logger.info("   3. Verificar que las filas tengan tanto RENTA > 0 como estado válido")
             
             return clientes_procesar
             
@@ -358,8 +474,13 @@ class SalvumMultiplePlanillasConVPS:
             logger.error(f"❌ Error actualizando estado: {e}")
     
     def configurar_navegador(self):
-        """🇨🇱 Configurar navegador SÚPER HUMANO CON PROXY VPS CHILE"""
+        """🇨🇱 Configurar navegador SÚPER HUMANO CON PROXY VPS CHILE + VERIFICACIONES"""
         logger.info("🔧 Configurando navegador SÚPER HUMANO CON PROXY VPS CHILE...")
+        
+        # 🔧 MEJORA: Verificar túnel SOCKS antes de continuar
+        if not self.verificar_tunel_socks():
+            logger.error("❌ CRÍTICO: Túnel SOCKS no funciona")
+            raise Exception("Túnel SOCKS no disponible - No se puede crear navegador")
         
         options = Options()
         
@@ -373,8 +494,8 @@ class SalvumMultiplePlanillasConVPS:
         options.add_argument('--disable-gpu')
         options.add_argument('--window-size=1920,1080')
         
-        # 🇨🇱 ⭐ PROXY SOCKS VPS CHILE ⭐
-        options.add_argument(f'--proxy-server={SOCKS_PROXY}')
+        # 🇨🇱 ⭐ PROXY SOCKS VPS CHILE ⭐ (CORREGIDO)
+        options.add_argument('--proxy-server=socks5://localhost:8080')
         options.add_argument('--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost')
         
         # 🤖 ANTI-DETECCIÓN SÚPER AVANZADA
@@ -402,8 +523,9 @@ class SalvumMultiplePlanillasConVPS:
         service = Service(ChromeDriverManager().install())
         self.driver = webdriver.Chrome(service=service, options=options)
         
-        # Configurar timeouts más largos (más humanos)
-        self.driver.set_page_load_timeout(45)
+        # ✅ TIMEOUTS SE CONFIGURAN AQUÍ (después de crear el driver)
+        self.driver.set_page_load_timeout(90)  # 90 segundos
+        self.driver.implicitly_wait(20)        # 20 segundos
         self.wait = WebDriverWait(self.driver, 30)
         
         # 🧠 SCRIPTS ANTI-DETECCIÓN AVANZADOS
@@ -432,6 +554,7 @@ class SalvumMultiplePlanillasConVPS:
         # 📊 RESUMEN DE MEJORAS HUMANAS INTEGRADAS
         logger.info("\n🤖 MEJORAS SÚPER HUMANAS ACTIVADAS:")
         logger.info("  ✅ Proxy SOCKS VPS Chile (IP chilena garantizada)")
+        logger.info("  ✅ Verificación previa del túnel SOCKS")
         logger.info("  ✅ Anti-detección súper avanzada")
         logger.info("  ✅ Esperas aleatorias entre 1-15 segundos")
         logger.info("  ✅ Tipeo carácter por carácter con pausas")
@@ -439,7 +562,7 @@ class SalvumMultiplePlanillasConVPS:
         logger.info("  ✅ Lectura de página como humano")
         logger.info("  ✅ Scroll y navegación natural")
         logger.info("  ✅ Pausas de 'satisfacción' y 'frustración'")
-        logger.info("  ✅ Timeouts extendidos (45s)")
+        logger.info("  ✅ Timeouts extendidos (90s)")
         logger.info("  ✅ Properties de navegador real")
         
     def _espera_humana(self, min_seg=1, max_seg=4, motivo="acción"):
@@ -539,76 +662,115 @@ class SalvumMultiplePlanillasConVPS:
             self._espera_humana(2, 5, "leyendo página")
     
     def realizar_login(self):
-        """🇨🇱 Login robusto en Salvum usando VPS Chile (método que funcionó)"""
+        """🔧 MEJORA: Login robusto con reintentos y mejor manejo de errores"""
         logger.info("🔐 Realizando login en Salvum VIA VPS CHILE...")
         
-        try:
-            # Verificar conexión VPS primero
-            vps_ok, ip_data = self.verificar_conexion_vps()
-            if not vps_ok:
-                logger.error("❌ CRÍTICO: No se puede usar el VPS Chile para login")
-                return False
+        max_intentos = 3
+        for intento in range(1, max_intentos + 1):
+            logger.info(f"🔄 Intento de login {intento}/{max_intentos}")
             
-            # Verificar IP del navegador también
-            logger.info("🔍 Verificando IP del navegador...")
             try:
-                self.driver.get('https://ipinfo.io/json')
-                time.sleep(3)
-                ip_browser = self.driver.find_element(By.TAG_NAME, 'pre').text
-                ip_data_browser = json.loads(ip_browser)
-                logger.info(f"📍 IP navegador: {ip_data_browser.get('ip')}")
-                logger.info(f"🏢 País navegador: {ip_data_browser.get('country')}")
+                # Verificar conexión VPS primero
+                vps_ok, ip_data = self.verificar_conexion_vps()
+                if not vps_ok:
+                    logger.error("❌ CRÍTICO: VPS no disponible")
+                    if intento < max_intentos:
+                        logger.info("⏳ Esperando antes de reintentar...")
+                        time.sleep(10)
+                        continue
+                    return False
                 
-                if ip_data_browser.get('ip') == VPS_IP_ESPERADA:
-                    logger.info("✅ Navegador usando VPS correctamente")
+                # Verificar IP del navegador también
+                logger.info("🔍 Verificando IP del navegador...")
+                try:
+                    self.driver.get('https://ipinfo.io/json')
+                    time.sleep(3)
+                    ip_browser = self.driver.find_element(By.TAG_NAME, 'pre').text
+                    ip_data_browser = json.loads(ip_browser)
+                    
+                    ip_navegador = ip_data_browser.get('ip')
+                    pais_navegador = ip_data_browser.get('country')
+                    
+                    logger.info(f"📍 IP navegador: {ip_navegador}")
+                    logger.info(f"🏢 País navegador: {pais_navegador}")
+                    
+                    if pais_navegador != 'CL':
+                        logger.warning(f"⚠️ Navegador no usa IP chilena: {pais_navegador}")
+                        if intento < max_intentos:
+                            logger.info("🔄 Reintentando con IP chilena...")
+                            time.sleep(5)
+                            continue
+                    else:
+                        logger.info("✅ Navegador usando IP chilena correctamente")
+                        
+                except Exception as e:
+                    logger.warning(f"No se pudo verificar IP navegador: {e}")
+                    if intento < max_intentos:
+                        time.sleep(5)
+                        continue
+                
+                # Acceder a página de login
+                logger.info("🔗 Accediendo a Salvum...")
+                self.driver.get("https://prescriptores.salvum.cl/login")
+                
+                # Esperar carga completa (del código que funcionó)
+                logger.info("⏳ Esperando carga completa...")
+                time.sleep(15)  # Espera larga como en el código que funcionó
+                
+                # Información de la página
+                url = self.driver.current_url
+                titulo = self.driver.title
+                html_size = len(self.driver.page_source)
+                
+                logger.info(f"📍 URL: {url}")
+                logger.info(f"📄 Título: {titulo}")
+                logger.info(f"📊 HTML size: {html_size}")
+                
+                # Screenshot inicial
+                screenshot_name = f'salvum_acceso_intento_{intento}.png'
+                self.driver.save_screenshot(screenshot_name)
+                logger.info(f"📸 Screenshot: {screenshot_name}")
+                
+                # Verificar si llegamos a la página correcta
+                page_source = self.driver.page_source.lower()
+                
+                if "bbva" in titulo.lower():
+                    logger.error(f"❌ Intento {intento}: Redirigido a BBVA (bloqueado)")
+                    if intento < max_intentos:
+                        logger.info("🔄 Reintentando...")
+                        time.sleep(20)  # Espera más larga
+                        continue
+                    return False
+                    
+                elif html_size < 5000:
+                    logger.error(f"❌ Intento {intento}: Página muy pequeña (bloqueado)")
+                    if intento < max_intentos:
+                        time.sleep(15)
+                        continue
+                    return False
+                    
+                elif any(palabra in page_source for palabra in ["salvum", "usuario", "login", "ob forum"]):
+                    logger.info(f"✅ Intento {intento}: ACCESO EXITOSO a Salvum")
+                    
+                    # Llamar método de login optimizado
+                    return self._realizar_login_optimizado()
                 else:
-                    logger.warning("⚠️ Navegador no usa la IP del VPS")
+                    logger.warning(f"⚠️ Intento {intento}: Estado desconocido")
+                    if intento < max_intentos:
+                        time.sleep(10)
+                        continue
+                    return False
                     
             except Exception as e:
-                logger.warning(f"No se pudo verificar IP del navegador: {e}")
-            
-            # Acceder a página de login
-            logger.info("🔗 Accediendo a Salvum...")
-            self.driver.get("https://prescriptores.salvum.cl/login")
-            
-            # Esperar carga completa (del código que funcionó)
-            logger.info("⏳ Esperando carga completa...")
-            time.sleep(15)  # Espera larga como en el código que funcionó
-            
-            # Información de la página
-            url = self.driver.current_url
-            titulo = self.driver.title
-            html_size = len(self.driver.page_source)
-            
-            logger.info(f"📍 URL: {url}")
-            logger.info(f"📄 Título: {titulo}")
-            logger.info(f"📊 HTML size: {html_size}")
-            
-            # Screenshot inicial
-            self.driver.save_screenshot('salvum_pagina_inicial_vps.png')
-            logger.info("📸 Screenshot inicial guardado")
-            
-            # Verificar si llegamos a la página correcta
-            page_source = self.driver.page_source.lower()
-            
-            if "bbva" in titulo.lower():
-                logger.error("❌ BLOQUEADO - Redirigido a BBVA (incluso con VPS)")
+                logger.error(f"❌ Error en intento {intento}: {e}")
+                if intento < max_intentos:
+                    logger.info("🔄 Reintentando después de error...")
+                    time.sleep(15)
+                    continue
                 return False
-            elif html_size < 5000:
-                logger.error("❌ BLOQUEADO - Página muy pequeña")
-                return False
-            elif "salvum" in page_source or "usuario" in page_source or "login" in page_source or "ob forum" in titulo.lower():
-                logger.info("✅ ACCESO EXITOSO - Página de Salvum detectada!")
-                
-                # Llamar método de login optimizado
-                return self._realizar_login_optimizado()
-            else:
-                logger.warning("❓ Estado desconocido de página")
-                return False
-                
-        except Exception as e:
-            logger.error(f"❌ Error general en login: {e}")
-            return False
+        
+        logger.error("❌ Todos los intentos de login fallaron")
+        return False
     
     def _realizar_login_optimizado(self):
         """🇨🇱 Método de login SÚPER HUMANO (basado en el que funcionó al 100%)"""
@@ -1221,6 +1383,7 @@ class SalvumMultiplePlanillasConVPS:
             'timestamp': datetime.now().isoformat(),
             'procesado_con_vps_chile': True,
             'vps_ip': VPS_IP_ESPERADA,
+            'estados_validos_usados': ESTADOS_VALIDOS_PROCESAR,
             'total_agentes': len(self.agentes_config),
             'total_clientes': total_clientes,
             'exitosos': total_procesados,
@@ -1237,14 +1400,15 @@ class SalvumMultiplePlanillasConVPS:
         }
         
         # Guardar reporte
-        with open('reporte_multiple_planillas_vps_chile.json', 'w', encoding='utf-8') as f:
+        with open('reporte_multiple_planillas_vps_chile_mejorado.json', 'w', encoding='utf-8') as f:
             json.dump(reporte, f, indent=2, ensure_ascii=False)
         
         # Mostrar reporte en consola
         logger.info("="*70)
-        logger.info("📊 REPORTE FINAL - MÚLTIPLES PLANILLAS CON VPS CHILE")
+        logger.info("📊 REPORTE FINAL - MÚLTIPLES PLANILLAS CON VPS CHILE (MEJORADO)")
         logger.info("="*70)
         logger.info(f"🇨🇱 VPS IP: {VPS_IP_ESPERADA}")
+        logger.info(f"🎯 Estados válidos: {ESTADOS_VALIDOS_PROCESAR}")
         logger.info(f"👥 Total agentes: {len(self.agentes_config)}")
         logger.info(f"✅ Clientes exitosos: {total_procesados}")
         logger.info(f"❌ Clientes fallidos: {total_fallidos}")
@@ -1277,11 +1441,12 @@ class SalvumMultiplePlanillasConVPS:
         return reporte
     
     def ejecutar_automatizacion_completa(self):
-        """🇨🇱 Ejecutar automatización completa CON VPS CHILE"""
-        logger.info("🚀 INICIANDO AUTOMATIZACIÓN MÚLTIPLES PLANILLAS CON VPS CHILE")
+        """🔧 MEJORA: Automatización completa con manejo robusto de errores"""
+        logger.info("🚀 INICIANDO AUTOMATIZACIÓN MÚLTIPLES PLANILLAS CON VPS CHILE (MEJORADA)")
         logger.info("="*70)
         logger.info(f"🇨🇱 VPS IP: {VPS_IP_ESPERADA}")
         logger.info(f"🔗 Proxy: {SOCKS_PROXY}")
+        logger.info(f"🎯 Estados válidos: {ESTADOS_VALIDOS_PROCESAR}")
         logger.info("="*70)
         
         try:
@@ -1305,10 +1470,10 @@ class SalvumMultiplePlanillasConVPS:
                 logger.info("ℹ️ No hay clientes para procesar")
                 return True
             
-            # 5. Configurar navegador CON VPS
+            # 5. Configurar navegador CON VPS + VERIFICACIONES
             self.configurar_navegador()
             
-            # 6. Login CON VPS
+            # 6. Login CON VPS + REINTENTOS
             if not self.realizar_login():
                 logger.error("❌ Login falló con VPS Chile")
                 return False
@@ -1319,33 +1484,42 @@ class SalvumMultiplePlanillasConVPS:
             # 8. Generar reporte
             self.generar_reporte_final()
             
-            logger.info("🎉 ¡AUTOMATIZACIÓN CON VPS CHILE COMPLETADA!")
+            logger.info("🎉 ¡AUTOMATIZACIÓN CON VPS CHILE COMPLETADA (VERSIÓN MEJORADA)!")
             return True
             
         except Exception as e:
             logger.error(f"❌ Error en automatización con VPS: {e}")
+            # Log adicional para debug
+            import traceback
+            logger.error(f"📋 Traceback completo: {traceback.format_exc()}")
             return False
             
         finally:
             if self.driver:
-                self.driver.quit()
+                try:
+                    self.driver.quit()
+                    logger.info("🔒 Navegador cerrado correctamente")
+                except:
+                    pass
 
 def main():
     """Función principal"""
     automator = SalvumMultiplePlanillasConVPS()
     
-    print("🇨🇱 AUTOMATIZACIÓN SALVUM CON VPS CHILE - MÚLTIPLES PLANILLAS")
+    print("🇨🇱 AUTOMATIZACIÓN SALVUM CON VPS CHILE - MÚLTIPLES PLANILLAS (VERSIÓN MEJORADA)")
     print("📊 Procesa clientes de múltiples agentes usando VPS chileno")
     print(f"🔗 VPS IP: {VPS_IP_ESPERADA}")
+    print(f"🎯 Estados válidos: {ESTADOS_VALIDOS_PROCESAR}")
     print("-"*70)
     
     success = automator.ejecutar_automatizacion_completa()
     
     if success:
         print("\n✅ ¡AUTOMATIZACIÓN CON VPS CHILE EXITOSA!")
-        print("📋 Ver reporte_multiple_planillas_vps_chile.json para detalles")
+        print("📋 Ver reporte_multiple_planillas_vps_chile_mejorado.json para detalles")
         print("📊 Estados actualizados en todas las planillas")
         print("🇨🇱 Procesado completamente con VPS chileno")
+        print("🔧 Versión mejorada con estados flexibles y verificaciones robustas")
     else:
         print("\n❌ Error en automatización con VPS Chile")
 
