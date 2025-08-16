@@ -879,63 +879,168 @@ class SalvumMultiplePlanillasConVPS:
         try:
             self.actualizar_estado_cliente(cliente_data, "PROCESANDO")
             
-            logger.info("📝 Iniciando nueva solicitud...")
-            nueva_solicitud_btn = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH, 
-                    "//button[contains(text(), 'Nueva Solicitud')] | //a[contains(text(), 'Nueva Solicitud')]"
-                ))
-            )
-            self._click_humano(nueva_solicitud_btn)
-            self._espera_humana(3, 6, "cargando nueva solicitud")
+            # 🔧 VERIFICAR URL Y BUSCAR "NUEVA SOLICITUD" SIEMPRE
+            url_actual = self.driver.current_url
+            logger.info(f"📍 URL actual: {url_actual}")
             
-            logger.info("📋 Llenando datos del cliente...")
+            # Si no estamos en credit-request, navegar primero
+            if "credit-request" not in url_actual.lower():
+                logger.info("🔄 Navegando a página de solicitudes...")
+                self.driver.get("https://prescriptores.salvum.cl/credit-request")
+                self._espera_humana(3, 6, "cargando página de solicitudes")
             
-            campo_rut = self.wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, 
-                    "input[name*='rut'], input[id*='rut'], input[placeholder*='RUT']"
-                ))
-            )
-            self._click_humano(campo_rut)
-            self._tipear_humano(campo_rut, str(cliente_data['RUT']))
+            # SIEMPRE buscar y hacer click en "Nueva Solicitud"
+            logger.info("📝 Buscando botón Nueva Solicitud...")
+            nueva_solicitud_btn = None
             
-            nombre_partes = nombre.split()
-            primer_nombre = nombre_partes[0] if nombre_partes else nombre
-            apellido = ' '.join(nombre_partes[1:]) if len(nombre_partes) > 1 else "Gonzalez"
+            # Múltiples selectores para el botón Nueva Solicitud
+            selectores_nueva_solicitud = [
+                "//button[contains(text(), 'Nueva Solicitud')]",
+                "//a[contains(text(), 'Nueva Solicitud')]", 
+                "//button[contains(text(), 'Crear Solicitud')]",
+                "//a[contains(text(), 'Crear Solicitud')]",
+                "//button[contains(text(), 'NUEVA SOLICITUD')]",
+                "//a[contains(text(), 'NUEVA SOLICITUD')]",
+                "//button[contains(@class, 'nueva-solicitud')]",
+                "//a[contains(@class, 'nueva-solicitud')]",
+                "//button[contains(@id, 'nueva-solicitud')]",
+                "//a[contains(@id, 'nueva-solicitud')]"
+            ]
             
-            self._llenar_campo_si_existe("input[name*='nombre'], input[id*='nombre'], input[placeholder*='Nombre']", primer_nombre)
-            self._llenar_campo_si_existe("input[name*='apellido'], input[id*='apellido']", apellido)
-            self._llenar_campo_si_existe("input[type='email'], input[name*='email']", str(cliente_data['Email']))
-            self._llenar_campo_si_existe("input[name*='telefono'], input[name*='phone']", str(cliente_data['Telefono']))
-            self._llenar_campo_si_existe("input[type='date'], input[name*='fecha']", "25/08/1987")
+            for selector in selectores_nueva_solicitud:
+                try:
+                    nueva_solicitud_btn = self.wait.until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                    logger.info(f"✅ Botón Nueva Solicitud encontrado: {selector}")
+                    break
+                except:
+                    continue
             
-            self._click_continuar()
+            if nueva_solicitud_btn:
+                logger.info("🔘 Haciendo click en Nueva Solicitud...")
+                self._click_humano(nueva_solicitud_btn)
+                self._espera_humana(4, 8, "cargando formulario de nueva solicitud")
+                
+                # Verificar que el formulario se haya cargado
+                url_despues_click = self.driver.current_url
+                logger.info(f"📍 URL después de click: {url_despues_click}")
+            else:
+                logger.error("❌ No se encontró botón Nueva Solicitud")
+                # Tomar screenshot para debugging
+                self.driver.save_screenshot(f"error_nueva_solicitud_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+                raise Exception("No se encontró botón Nueva Solicitud")
             
-            logger.info("💰 Configurando financiamiento...")
+            logger.info("📋 Llenando datos específicos del cliente en el formulario...")
             
-            self._seleccionar_producto("Casas Modulares")
+            # Procesar nombre del cliente
+            nombre_completo = cliente_data['Nombre Cliente']
+            nombre_partes = nombre_completo.split()
+            primer_nombre = nombre_partes[0] if nombre_partes else nombre_completo
             
-            monto = int(cliente_data['Monto Financiar Original'])
-            self._llenar_campo_si_existe("input[name*='valor'], input[id*='valor']", str(monto))
-            self._llenar_campo_si_existe("input[name*='solicitar'], input[name*='monto']", str(monto))
+            # CAMPO 1: RUT
+            logger.info("🆔 Llenando RUT...")
+            rut_value = str(cliente_data['RUT']).strip()
+            if not self._llenar_campo_especifico("RUT", rut_value, [
+                "input[name*='rut']", 
+                "input[id*='rut']", 
+                "input[placeholder*='RUT']",
+                "input[placeholder*='rut']",
+                "input[class*='rut']"
+            ]):
+                raise Exception("❌ Campo RUT no encontrado")
             
-            self._configurar_cuotas_y_dia()
+            # CAMPO 2: NÚMERO CELULAR
+            logger.info("📱 Llenando Número Celular...")
+            telefono_value = str(cliente_data['Telefono']).strip()
+            if not self._llenar_campo_especifico("Teléfono/Celular", telefono_value, [
+                "input[name*='telefono']",
+                "input[name*='celular']", 
+                "input[name*='phone']",
+                "input[id*='telefono']",
+                "input[id*='celular']",
+                "input[id*='phone']",
+                "input[placeholder*='teléfono']",
+                "input[placeholder*='celular']",
+                "input[placeholder*='phone']",
+                "input[type='tel']"
+            ]):
+                logger.warning("⚠️ Campo Teléfono no encontrado, continuando...")
             
-            btn_simular = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Simular')]")
-            self._click_humano(btn_simular)
-            self._espera_humana(6, 10, "procesando simulación")
+            # CAMPO 3: CORREO ELECTRÓNICO
+            logger.info("📧 Llenando Correo Electrónico...")
+            email_value = str(cliente_data['Email']).strip()
+            if not self._llenar_campo_especifico("Email", email_value, [
+                "input[type='email']",
+                "input[name*='email']",
+                "input[name*='correo']",
+                "input[id*='email']",
+                "input[id*='correo']",
+                "input[placeholder*='email']",
+                "input[placeholder*='correo']"
+            ]):
+                logger.warning("⚠️ Campo Email no encontrado, continuando...")
             
-            self._click_continuar()
+            # CAMPO 4: NOMBRE
+            logger.info("👤 Llenando Nombre...")
+            if not self._llenar_campo_especifico("Nombre", primer_nombre, [
+                "input[name*='nombre']",
+                "input[name*='name']",
+                "input[id*='nombre']",
+                "input[id*='name']",
+                "input[placeholder*='Nombre']",
+                "input[placeholder*='name']"
+            ]):
+                logger.warning("⚠️ Campo Nombre no encontrado, continuando...")
             
-            logger.info("📋 Completando información personal...")
-            self._llenar_informacion_personal(cliente_data)
+            # CAMPO 5: APELLIDOS (VALOR FIJO: Gonzalez)
+            logger.info("👨‍👩‍👧‍👦 Llenando Apellidos...")
+            if not self._llenar_campo_especifico("Apellidos", "Gonzalez", [
+                "input[name*='apellido']",
+                "input[name*='surname']",
+                "input[id*='apellido']",
+                "input[id*='surname']",
+                "input[placeholder*='Apellido']",
+                "input[placeholder*='surname']"
+            ]):
+                logger.warning("⚠️ Campo Apellidos no encontrado, continuando...")
             
-            logger.info("📤 Enviando solicitud...")
-            btn_enviar = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Enviar')]"))
-            )
-            self._click_humano(btn_enviar)
-            self._espera_humana(8, 12, "enviando solicitud")
+            # CAMPO 6: FECHA DE NACIMIENTO (VALOR FIJO: 25/08/1987)
+            logger.info("🎂 Llenando Fecha de Nacimiento...")
+            if not self._llenar_campo_especifico("Fecha Nacimiento", "25/08/1987", [
+                "input[type='date']",
+                "input[name*='fecha']",
+                "input[name*='nacimiento']",
+                "input[name*='birth']",
+                "input[id*='fecha']",
+                "input[id*='nacimiento']",
+                "input[id*='birth']",
+                "input[placeholder*='fecha']",
+                "input[placeholder*='nacimiento']"
+            ]):
+                logger.warning("⚠️ Campo Fecha de Nacimiento no encontrado, continuando...")
             
+            logger.info("✅ Todos los campos del formulario completados")
+            
+            # Tomar screenshot del formulario completado
+            self.driver.save_screenshot(f"formulario_completado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+            logger.info("📸 Screenshot del formulario completado tomada")
+            
+            # 7. CLICK EN CONTINUAR
+            logger.info("🔘 Buscando botón Continuar...")
+            self._espera_humana(2, 4, "revisando formulario antes de continuar")
+            
+            if not self._click_continuar_flexible():
+                logger.warning("⚠️ No se pudo hacer click en Continuar, intentando continuar con el flujo...")
+            
+            logger.info("✅ Primera parte del formulario completada")
+            
+            # Continuar con el resto del procesamiento (financiamiento, etc.)
+            logger.info("💰 Continuando con configuración de financiamiento...")
+            
+            self._configurar_financiamiento(cliente_data)
+            
+            # Resto del procesamiento...
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             screenshot_path = f"cliente_{agente.replace(' ', '_')}_{nombre.replace(' ', '_')}_{timestamp}.png"
             self.driver.save_screenshot(screenshot_path)
@@ -946,7 +1051,7 @@ class SalvumMultiplePlanillasConVPS:
                 'agente': agente,
                 'cliente': nombre,
                 'rut': cliente_data['RUT'],
-                'monto': monto,
+                'monto': int(cliente_data['Monto Financiar Original']),
                 'renta_liquida': cliente_data['RENTA LIQUIDA'],
                 'url_resultado': url_resultado,
                 'screenshot': screenshot_path,
@@ -964,6 +1069,14 @@ class SalvumMultiplePlanillasConVPS:
         except Exception as e:
             logger.error(f"❌ Error procesando cliente {nombre} ({agente}): {e}")
             
+            # Tomar screenshot del error para debugging
+            try:
+                error_screenshot = f"error_{agente.replace(' ', '_')}_{nombre.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                self.driver.save_screenshot(error_screenshot)
+                logger.info(f"📸 Screenshot del error: {error_screenshot}")
+            except:
+                pass
+            
             error_msg = str(e)[:100]
             self.actualizar_estado_cliente(cliente_data, "ERROR", f"Error: {error_msg}")
             
@@ -976,189 +1089,387 @@ class SalvumMultiplePlanillasConVPS:
             })
             
             return False
-    
-    def _llenar_campo_si_existe(self, selector, valor):
-        """Llenar campo si existe DE FORMA HUMANA"""
-        try:
-            campo = self.driver.find_element(By.CSS_SELECTOR, selector)
-            if campo.is_displayed() and campo.is_enabled():
-                logger.info(f"✏️ Llenando campo: {selector[:30]}... = {valor}")
-                
-                self._mover_mouse_humano(campo)
-                self._click_humano(campo)
-                self._tipear_humano(campo, str(valor))
-                
-                return True
-        except:
-            pass
+
+    def _llenar_campo_especifico(self, nombre_campo, valor, selectores):
+        """Llenar un campo específico con múltiples selectores"""
+        logger.info(f"  🔍 Buscando campo {nombre_campo}...")
+        
+        for selector in selectores:
+            try:
+                campo = self.driver.find_element(By.CSS_SELECTOR, selector)
+                if campo.is_displayed() and campo.is_enabled():
+                    logger.info(f"  ✅ Campo {nombre_campo} encontrado: {selector}")
+                    
+                    # Limpiar el campo primero
+                    campo.clear()
+                    self._espera_humana(0.5, 1, f"limpiando campo {nombre_campo}")
+                    
+                    # Hacer click y tipear de forma humana
+                    self._click_humano(campo)
+                    self._tipear_humano(campo, valor)
+                    
+                    logger.info(f"  ✅ {nombre_campo} llenado: {valor}")
+                    return True
+                    
+            except Exception as e:
+                continue
+        
+        logger.warning(f"  ❌ Campo {nombre_campo} no encontrado con ningún selector")
         return False
-    
-    def _click_continuar(self):
-        """Click en botón continuar DE FORMA HUMANA"""
+
+    def _configurar_financiamiento(self, cliente_data):
+        """Configurar el flujo completo de financiamiento paso a paso"""
+        logger.info("💰 INICIANDO FLUJO COMPLETO DE FINANCIAMIENTO...")
+        
         try:
-            btn_continuar = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Continuar')]")
-            logger.info("🔘 Haciendo click en Continuar...")
+            # ============= PÁGINA 1: CONFIGURACIÓN DE FINANCIAMIENTO =============
+            logger.info("📄 PÁGINA 1: Configuración de Financiamiento")
+            self._espera_humana(3, 6, "cargando página de financiamiento")
             
-            self._espera_humana(1, 3, "revisando antes de continuar")
-            self._click_humano(btn_continuar)
+            # 1. ¿Qué se va a financiar? → Casas Modulares
+            logger.info("🏠 Seleccionando: Casas Modulares")
+            self._seleccionar_opcion("¿Qué se va a financiar?", "Casas Modulares", [
+                "select[name*='producto']",
+                "select[name*='financiar']",
+                "select[id*='producto']",
+                "select[id*='financiar']"
+            ])
             
-            self._espera_humana(3, 6, "cargando siguiente página")
+            # 2. Valor del producto → Monto financiamiento
+            monto = int(cliente_data['Monto Financiar Original'])
+            logger.info(f"💰 Llenando Valor del producto: {monto}")
+            self._llenar_campo_especifico("Valor del producto", str(monto), [
+                "input[name*='valor']",
+                "input[name*='precio']",
+                "input[name*='product']",
+                "input[id*='valor']",
+                "input[id*='precio']",
+                "input[placeholder*='valor']"
+            ])
             
-        except Exception as e:
-            logger.warning(f"Error en continuar: {e}")
-            self._espera_humana(2, 4, "fallback continuar")
-    
-    def _seleccionar_producto(self, producto):
-        """Seleccionar producto DE FORMA HUMANA"""
-        try:
-            logger.info(f"🏠 Seleccionando producto: {producto}")
+            # 3. ¿Cuánto quieres solicitar? → Monto financiamiento
+            logger.info(f"💵 Llenando Cuánto quieres solicitar: {monto}")
+            self._llenar_campo_especifico("Cuánto solicitar", str(monto), [
+                "input[name*='solicitar']",
+                "input[name*='monto']",
+                "input[name*='amount']",
+                "input[id*='solicitar']",
+                "input[id*='monto']",
+                "input[placeholder*='solicitar']"
+            ])
             
-            campo_producto = self.driver.find_element(By.XPATH, "//select | //input[name*='producto']")
+            # 4. Cuota → 60
+            logger.info("📊 Configurando Cuota: 60")
+            self._seleccionar_opcion("Cuota", "60", [
+                "select[name*='cuota']",
+                "select[id*='cuota']",
+                "input[name*='cuota']",
+                "input[id*='cuota']"
+            ])
             
-            self._mover_mouse_humano(campo_producto)
-            self._espera_humana(0.5, 1.5, "viendo opciones de producto")
+            # 5. Día de Vencimiento → 2
+            logger.info("📅 Configurando Día de Vencimiento: 2")
+            self._seleccionar_opcion("Día Vencimiento", "2", [
+                "select[name*='dia']",
+                "select[name*='vencimiento']",
+                "select[id*='dia']",
+                "input[name*='dia']",
+                "input[id*='dia']"
+            ])
             
-            if campo_producto.tag_name == 'select':
-                select = Select(campo_producto)
-                self._espera_humana(1, 2, "leyendo opciones")
-                select.select_by_visible_text(producto)
+            # 6. Click en Simular
+            logger.info("🔘 Haciendo click en Simular...")
+            btn_simular = self._buscar_boton_flexible(["Simular", "Calcular", "Procesar"])
+            if btn_simular:
+                self._click_humano(btn_simular)
+                self._espera_humana(6, 10, "procesando simulación")
             else:
-                self._click_humano(campo_producto)
-                self._tipear_humano(campo_producto, producto)
+                raise Exception("❌ Botón Simular no encontrado")
             
-            self._espera_humana(1, 2, "confirmando selección producto")
+            # ============= PÁGINA 2: CONTINUAR DESPUÉS DE SIMULACIÓN =============
+            logger.info("📄 PÁGINA 2: Después de Simulación")
+            self._espera_humana(3, 5, "cargando resultados de simulación")
+            
+            if not self._click_continuar_flexible():
+                raise Exception("❌ No se pudo continuar después de simulación")
+            
+            # ============= PÁGINA 3: INFORMACIÓN PERSONAL =============
+            logger.info("📄 PÁGINA 3: Información Personal")
+            self._espera_humana(3, 5, "cargando página información personal")
+            
+            # N° de serie C.I → 123456789
+            logger.info("🆔 Llenando N° de serie C.I: 123456789")
+            self._llenar_campo_especifico("N° CI", "123456789", [
+                "input[name*='ci']",
+                "input[name*='cedula']",
+                "input[name*='serie']",
+                "input[id*='ci']",
+                "input[id*='cedula']",
+                "input[placeholder*='ci']"
+            ])
+            
+            # Estado Civil → Soltero
+            logger.info("💑 Seleccionando Estado Civil: Soltero")
+            self._seleccionar_opcion("Estado Civil", "Soltero", [
+                "select[name*='civil']",
+                "select[name*='estado']",
+                "select[id*='civil']",
+                "select[id*='estado']"
+            ])
+            
+            if not self._click_continuar_flexible():
+                raise Exception("❌ No se pudo continuar después de información personal")
+            
+            # ============= PÁGINA 4: UBICACIÓN =============
+            logger.info("📄 PÁGINA 4: Ubicación")
+            self._espera_humana(3, 5, "cargando página ubicación")
+            
+            # Región → Coquimbo
+            logger.info("🌎 Seleccionando Región: Coquimbo")
+            self._seleccionar_opcion("Región", "Coquimbo", [
+                "select[name*='region']",
+                "select[id*='region']"
+            ])
+            self._espera_humana(2, 4, "cargando ciudades")
+            
+            # Ciudad → Elqui
+            logger.info("🏙️ Seleccionando Ciudad: Elqui")
+            self._seleccionar_opcion("Ciudad", "Elqui", [
+                "select[name*='ciudad']",
+                "select[name*='city']",
+                "select[id*='ciudad']"
+            ])
+            self._espera_humana(2, 4, "cargando comunas")
+            
+            # Comuna → La Serena
+            logger.info("🏘️ Seleccionando Comuna: La Serena")
+            self._seleccionar_opcion("Comuna", "La Serena", [
+                "select[name*='comuna']",
+                "select[id*='comuna']"
+            ])
+            
+            # Dirección → Avenida
+            logger.info("🏠 Llenando Dirección: Avenida")
+            self._llenar_campo_especifico("Dirección", "Avenida", [
+                "input[name*='direccion']",
+                "input[name*='address']",
+                "input[id*='direccion']",
+                "input[placeholder*='direccion']"
+            ])
+            
+            if not self._click_continuar_flexible():
+                raise Exception("❌ No se pudo continuar después de ubicación")
+            
+            # ============= PÁGINA 5: INFORMACIÓN LABORAL =============
+            logger.info("📄 PÁGINA 5: Información Laboral")
+            self._espera_humana(3, 5, "cargando página información laboral")
+            
+            # Modalidad de trabajo → Jubilado
+            logger.info("💼 Seleccionando Modalidad de trabajo: Jubilado")
+            self._seleccionar_opcion("Modalidad trabajo", "Jubilado", [
+                "select[name*='trabajo']",
+                "select[name*='modalidad']",
+                "select[name*='laboral']",
+                "select[id*='trabajo']",
+                "select[id*='modalidad']"
+            ])
+            
+            # Última Pensión Líquida → Desde Google Sheet
+            renta_liquida = int(cliente_data['RENTA LIQUIDA'])
+            logger.info(f"💰 Llenando Última Pensión Líquida: {renta_liquida}")
+            self._llenar_campo_especifico("Pensión Líquida", str(renta_liquida), [
+                "input[name*='pension']",
+                "input[name*='renta']",
+                "input[name*='liquida']",
+                "input[id*='pension']",
+                "input[id*='renta']",
+                "input[placeholder*='pension']"
+            ])
+            
+            if not self._click_continuar_flexible():
+                raise Exception("❌ No se pudo continuar después de información laboral")
+            
+            # ============= PÁGINA 6: CONTINUAR AUTOMÁTICO =============
+            logger.info("📄 PÁGINA 6: Continuar Automático")
+            self._espera_humana(3, 5, "cargando página intermedia")
+            
+            if not self._click_continuar_flexible():
+                raise Exception("❌ No se pudo continuar en página intermedia")
+            
+            # ============= PÁGINA 7: RESULTADO FINAL =============
+            logger.info("📄 PÁGINA 7: Resultado Final")
+            self._espera_humana(5, 8, "cargando página final")
+            
+            # Sacar screenshot y guardar
+            return self._capturar_resultado_final(cliente_data)
             
         except Exception as e:
-            logger.warning(f"Error seleccionando producto: {e}")
-    
-    def _configurar_cuotas_y_dia(self):
-        """Configurar cuotas y día de vencimiento DE FORMA HUMANA"""
-        logger.info("⚙️ Configurando cuotas y día...")
+            logger.error(f"❌ Error en flujo de financiamiento: {e}")
+            raise
+
+    def _seleccionar_opcion(self, nombre_campo, valor, selectores):
+        """Seleccionar opción en select o llenar input"""
+        logger.info(f"  🔍 Buscando campo {nombre_campo} para valor: {valor}")
+        
+        for selector in selectores:
+            try:
+                elemento = self.driver.find_element(By.CSS_SELECTOR, selector)
+                if elemento.is_displayed() and elemento.is_enabled():
+                    logger.info(f"  ✅ Campo {nombre_campo} encontrado: {selector}")
+                    
+                    if elemento.tag_name == 'select':
+                        # Es un select dropdown
+                        self._mover_mouse_humano(elemento)
+                        self._espera_humana(0.5, 1.5, f"viendo opciones {nombre_campo}")
+                        
+                        select = Select(elemento)
+                        try:
+                            select.select_by_visible_text(valor)
+                            logger.info(f"  ✅ {nombre_campo} seleccionado: {valor}")
+                            return True
+                        except:
+                            # Intentar seleccionar por valor
+                            try:
+                                select.select_by_value(valor)
+                                logger.info(f"  ✅ {nombre_campo} seleccionado por valor: {valor}")
+                                return True
+                            except:
+                                continue
+                    else:
+                        # Es un input
+                        self._click_humano(elemento)
+                        self._tipear_humano(elemento, valor)
+                        logger.info(f"  ✅ {nombre_campo} llenado: {valor}")
+                        return True
+                        
+            except Exception as e:
+                continue
+        
+        logger.warning(f"  ❌ Campo {nombre_campo} no encontrado")
+        return False
+
+    def _capturar_resultado_final(self, cliente_data):
+        """Capturar screenshot final y guardar información"""
+        logger.info("📸 CAPTURANDO RESULTADO FINAL...")
         
         try:
-            campo_cuotas = self.driver.find_element(By.CSS_SELECTOR, "input[name*='cuota'], select[name*='cuota']")
+            # Tomar screenshot de la página final
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            nombre_cliente = cliente_data['Nombre Cliente'].replace(' ', '_')
+            agente = cliente_data['agente'].replace(' ', '_')
             
-            logger.info("📊 Configurando cuotas = 60")
-            self._mover_mouse_humano(campo_cuotas)
-            self._espera_humana(0.5, 1, "pensando en cuotas")
+            screenshot_path = f"resultado_final_{agente}_{nombre_cliente}_{timestamp}.png"
+            self.driver.save_screenshot(screenshot_path)
+            logger.info(f"📸 Screenshot capturado: {screenshot_path}")
             
-            if campo_cuotas.tag_name == 'select':
-                select = Select(campo_cuotas)
-                self._espera_humana(0.5, 1, "viendo opciones cuotas")
-                select.select_by_value("60")
-            else:
-                self._click_humano(campo_cuotas)
-                self._tipear_humano(campo_cuotas, "60")
+            # Obtener URL de resultado
+            url_resultado = self.driver.current_url
+            logger.info(f"📍 URL resultado: {url_resultado}")
             
-            self._espera_humana(1, 2, "confirmando cuotas")
+            # Intentar guardar el screenshot en Google Sheet
+            self._guardar_screenshot_en_sheet(cliente_data, screenshot_path, url_resultado)
+            
+            return {
+                'screenshot': screenshot_path,
+                'url': url_resultado,
+                'timestamp': timestamp
+            }
             
         except Exception as e:
-            logger.warning(f"Error configurando cuotas: {e}")
-        
+            logger.error(f"❌ Error capturando resultado final: {e}")
+            raise
+
+    def _guardar_screenshot_en_sheet(self, cliente_data, screenshot_path, url_resultado):
+        """Guardar información del screenshot en Google Sheet"""
         try:
-            campo_dia = self.driver.find_element(By.CSS_SELECTOR, "input[name*='dia'], select[name*='dia']")
+            logger.info("💾 Guardando información en Google Sheet...")
             
-            logger.info("📅 Configurando día = 2")
-            self._mover_mouse_humano(campo_dia)
-            self._espera_humana(0.5, 1, "pensando en día")
+            sheet_id = cliente_data['sheet_id']
+            row_number = cliente_data['row_number']
             
-            if campo_dia.tag_name == 'select':
-                select = Select(campo_dia)
-                self._espera_humana(0.5, 1, "viendo opciones día")
-                select.select_by_value("2")
-            else:
-                self._click_humano(campo_dia)
-                self._tipear_humano(campo_dia, "2")
+            spreadsheet = self.gc.open_by_key(sheet_id)
+            worksheet = None
             
-            self._espera_humana(1, 2, "confirmando día")
+            # Buscar la hoja correcta
+            nombres_hoja_posibles = ['Mis_Clientes_Financiamiento', 'sheet1', 'Hoja1', 'Sheet1']
+            for nombre_hoja in nombres_hoja_posibles:
+                try:
+                    worksheet = spreadsheet.worksheet(nombre_hoja)
+                    break
+                except:
+                    continue
+            
+            if not worksheet:
+                worksheet = spreadsheet.sheet1
+            
+            # Actualizar columnas con la información del resultado
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Columna 14: Estado
+            worksheet.update_cell(row_number, 14, "COMPLETADO")
+            
+            # Columna 15: Resultado 
+            worksheet.update_cell(row_number, 15, f"Exitoso - URL: {url_resultado}")
+            
+            # Columna 16: Fecha de proceso
+            worksheet.update_cell(row_number, 16, f"Procesado: {timestamp}")
+            
+            # Columna 17: Screenshot (si existe esta columna)
+            try:
+                worksheet.update_cell(row_number, 17, f"Screenshot: {screenshot_path}")
+            except:
+                pass
+            
+            logger.info(f"✅ Información guardada en Google Sheet fila {row_number}")
             
         except Exception as e:
-            logger.warning(f"Error configurando día: {e}")
-    
-    def _llenar_informacion_personal(self, cliente_data):
-        """Llenar información personal fija DE FORMA HUMANA"""
-        logger.info("📋 Llenando información personal de forma humana...")
+            logger.error(f"❌ Error guardando en Google Sheet: {e}")
+            # No lanzar excepción aquí para no interrumpir el flujo
+
+    def _click_continuar_flexible(self):
+        """Click en botón continuar con múltiples variantes"""
+        botones_continuar = [
+            "Continuar", "Siguiente", "Next", "Avanzar", "Seguir"
+        ]
         
-        self._leer_pagina_humano()
+        for texto_boton in botones_continuar:
+            try:
+                btn = self.driver.find_element(By.XPATH, f"//button[contains(text(), '{texto_boton}')]")
+                if btn.is_displayed() and btn.is_enabled():
+                    logger.info(f"🔘 Haciendo click en {texto_boton}...")
+                    self._espera_humana(1, 3, "revisando antes de continuar")
+                    self._click_humano(btn)
+                    self._espera_humana(3, 6, "cargando siguiente página")
+                    return True
+            except:
+                continue
         
-        logger.info("🆔 Llenando CI...")
-        self._llenar_campo_si_existe("input[name*='ci'], input[name*='cedula']", "123456789")
-        
+        # Si no encuentra botón, intentar enviar Enter en el último campo activo
         try:
-            logger.info("💑 Seleccionando estado civil...")
-            estado_civil = self.driver.find_element(By.CSS_SELECTOR, "select[name*='estado'], select[name*='civil']")
-            self._mover_mouse_humano(estado_civil)
-            self._espera_humana(0.5, 1.5, "pensando estado civil")
-            
-            select = Select(estado_civil)
-            select.select_by_visible_text("Soltero")
-            self._espera_humana(1, 2, "confirmando estado civil")
+            elemento_activo = self.driver.switch_to.active_element
+            elemento_activo.send_keys(Keys.RETURN)
+            self._espera_humana(3, 6, "enviando Enter como continuar")
+            logger.info("⌨️ Enviado Enter como alternativa")
+            return True
         except:
             pass
         
-        logger.info("🗺️ Configurando ubicación...")
-        self._seleccionar_ubicacion()
+        logger.warning("⚠️ No se pudo continuar")
+        return False
+
+    def _buscar_boton_flexible(self, textos_posibles):
+        """Buscar botón con múltiples textos posibles"""
+        for texto in textos_posibles:
+            try:
+                btn = self.driver.find_element(By.XPATH, f"//button[contains(text(), '{texto}')]")
+                if btn.is_displayed() and btn.is_enabled():
+                    logger.info(f"✅ Botón encontrado: {texto}")
+                    return btn
+            except:
+                continue
         
-        logger.info("🏠 Llenando dirección...")
-        self._llenar_campo_si_existe("input[name*='direccion']", "Aven")
-        
-        try:
-            logger.info("💼 Seleccionando modalidad trabajo...")
-            modalidad = self.driver.find_element(By.CSS_SELECTOR, "select[name*='trabajo']")
-            self._mover_mouse_humano(modalidad)
-            self._espera_humana(0.5, 1.5, "pensando modalidad trabajo")
-            
-            select = Select(modalidad)
-            select.select_by_visible_text("Jubilado")
-            self._espera_humana(1, 2, "confirmando modalidad")
-        except:
-            pass
-        
-        renta_liquida = int(cliente_data['RENTA LIQUIDA'])
-        logger.info(f"💰 Llenando renta líquida: {renta_liquida}")
-        self._llenar_campo_si_existe("input[name*='pension'], input[name*='renta'], input[name*='liquida']", str(renta_liquida))
-        
-        self._espera_humana(2, 4, "revisando información completa")
-        
-        self._click_continuar()
-    
-    def _seleccionar_ubicacion(self):
-        """Seleccionar ubicación fija DE FORMA HUMANA"""
-        try:
-            logger.info("🌎 Seleccionando región...")
-            region = self.driver.find_element(By.CSS_SELECTOR, "select[name*='region']")
-            self._mover_mouse_humano(region)
-            self._espera_humana(0.5, 1.5, "viendo regiones")
-            
-            select = Select(region)
-            select.select_by_visible_text("Coquimbo")
-            self._espera_humana(2, 3, "cargando ciudades")
-        except:
-            pass
-        
-        try:
-            logger.info("🏙️ Seleccionando ciudad...")
-            ciudad = self.driver.find_element(By.CSS_SELECTOR, "select[name*='ciudad']")
-            self._mover_mouse_humano(ciudad)
-            self._espera_humana(0.5, 1.5, "viendo ciudades")
-            
-            select = Select(ciudad)
-            select.select_by_visible_text("Elqui")
-            self._espera_humana(2, 3, "cargando comunas")
-        except:
-            pass
-        
-        try:
-            logger.info("🏘️ Seleccionando comuna...")
-            comuna = self.driver.find_element(By.CSS_SELECTOR, "select[name*='comuna']")
-            self._mover_mouse_humano(comuna)
-            self._espera_humana(0.5, 1.5, "viendo comunas")
-            
-            select = Select(comuna)
-            select.select_by_visible_text("La Serena")
-            self._espera_humana(1, 2, "confirmando ubicación")
-        except:
-            pass
+        logger.warning(f"⚠️ No se encontró botón con textos: {textos_posibles}")
+        return None
     
     def procesar_todos_los_clientes(self):
         """Procesar todos los clientes CON COMPORTAMIENTO SÚPER HUMANO"""
