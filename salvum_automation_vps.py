@@ -2,6 +2,7 @@
 """
 AUTOMATIZACIÓN SALVUM CON MÚLTIPLES PLANILLAS + VPS CHILE
 Procesa clientes de múltiples agentes automáticamente usando VPS chileno
+ESTRUCTURA CORREGIDA: Columnas separadas (C=Nombre, D=RUT, I=Monto, etc.)
 """
 import os
 import time
@@ -157,15 +158,46 @@ class SalvumMultiplePlanillasConVPS:
             return False
     
     def leer_clientes_desde_planilla(self, sheet_id, nombre_agente):
-        """Leer clientes de una planilla específica"""
+        """Leer clientes de una planilla específica - ESTRUCTURA REAL CORREGIDA"""
         logger.info(f"📖 Leyendo clientes de {nombre_agente}...")
         
         try:
             # Abrir planilla específica
-            worksheet = self.gc.open_by_key(sheet_id).sheet1
+            spreadsheet = self.gc.open_by_key(sheet_id)
+            
+            # ADAPTACIÓN: Buscar la hoja correcta
+            worksheet = None
+            
+            # Intentar diferentes nombres de hoja
+            nombres_hoja_posibles = [
+                'Mis_Clientes_Financiamiento',  # Tu hoja real
+                'sheet1',  # Fallback original
+                'Hoja1',   # Nombre español
+                'Sheet1'   # Nombre inglés
+            ]
+            
+            for nombre_hoja in nombres_hoja_posibles:
+                try:
+                    worksheet = spreadsheet.worksheet(nombre_hoja)
+                    logger.info(f"✅ Hoja encontrada: '{nombre_hoja}'")
+                    break
+                except:
+                    continue
+            
+            if not worksheet:
+                # Si no encuentra ninguna, usar la primera disponible
+                worksheet = spreadsheet.sheet1
+                logger.info("⚠️ Usando primera hoja disponible")
             
             # Obtener todos los datos
             records = worksheet.get_all_records()
+            
+            logger.info(f"📊 Total registros en planilla: {len(records)}")
+            
+            # MOSTRAR HEADERS REALES PARA DEBUG
+            if records:
+                headers_reales = list(records[0].keys())
+                logger.info(f"📋 Headers encontrados: {headers_reales}")
             
             # Filtrar clientes listos para procesar
             clientes_procesar = []
@@ -186,33 +218,57 @@ class SalvumMultiplePlanillasConVPS:
                 except:
                     renta_liquida = 0
                 
+                logger.info(f"🔍 Fila {i}: PROCESAR='{procesar}', RENTA={renta_liquida}")
+                
                 # Verificar si está listo para procesar
                 if renta_liquida > 0 and procesar == 'NUEVO':
+                    
+                    # ESTRUCTURA REAL: Columnas separadas
+                    nombre_cliente = record.get('Nombre Cliente', '')
+                    rut_cliente = record.get('RUT', '')
+                    
+                    # MONTO: Columna I (Monto Financiamiento)
+                    monto_financiar = self._limpiar_numero(record.get('Monto Financiamiento', 0))
+                    
                     cliente = {
                         'agente': nombre_agente,
                         'sheet_id': sheet_id,
                         'row_number': i,  # Para actualizar después
-                        'Nombre Cliente': record.get('Nombre Cliente', ''),
-                        'RUT': record.get('RUT', ''),
+                        'Nombre Cliente': nombre_cliente,
+                        'RUT': rut_cliente,
                         'Email': record.get('Email', ''),
                         'Telefono': record.get('Teléfono', record.get('Telefono', '')),
-                        'Monto Financiar Original': self._limpiar_numero(record.get('Monto Financia Origen', 0)),
+                        'Monto Financiar Original': monto_financiar,
                         'RENTA LIQUIDA': renta_liquida,
                         'Modelo Casa': record.get('Modelo Casa', ''),
-                        'Precio Casa': self._limpiar_numero(record.get('Precio Casa', 0))
+                        'Precio Casa': self._limpiar_numero(record.get('Precio Casa', 0)),
+                        'Origen': record.get('Origen', '')  # Columna J
                     }
                     clientes_procesar.append(cliente)
+                    
+                    logger.info(f"  ✅ Cliente agregado: {nombre_cliente} (RUT: {rut_cliente}) - Monto: {monto_financiar}")
             
             logger.info(f"✅ {nombre_agente}: {len(clientes_procesar)} clientes para procesar")
             
             if clientes_procesar:
                 for cliente in clientes_procesar:
                     logger.info(f"  📋 {cliente['Nombre Cliente']} (RUT: {cliente['RUT']}) - Fila: {cliente['row_number']}")
+            else:
+                logger.warning(f"⚠️ {nombre_agente}: No se encontraron clientes con PROCESAR='NUEVO' y RENTA > 0")
+                logger.info("🔍 Verificando valores únicos en columna PROCESAR:")
+                valores_procesar = set()
+                for record in records:
+                    procesar_val = str(record.get('PROCESAR', '')).strip()
+                    if procesar_val:
+                        valores_procesar.add(f"'{procesar_val}'")
+                logger.info(f"   Valores encontrados: {list(valores_procesar)}")
             
             return clientes_procesar
             
         except Exception as e:
             logger.error(f"❌ Error leyendo planilla de {nombre_agente}: {e}")
+            import traceback
+            logger.error(f"📋 Traceback: {traceback.format_exc()}")
             return []
     
     def _limpiar_numero(self, valor):
@@ -270,7 +326,21 @@ class SalvumMultiplePlanillasConVPS:
             agente = cliente_data['agente']
             
             # Abrir la planilla específica
-            worksheet = self.gc.open_by_key(sheet_id).sheet1
+            spreadsheet = self.gc.open_by_key(sheet_id)
+            
+            # Buscar la hoja correcta (igual que en leer_clientes)
+            worksheet = None
+            nombres_hoja_posibles = ['Mis_Clientes_Financiamiento', 'sheet1', 'Hoja1', 'Sheet1']
+            
+            for nombre_hoja in nombres_hoja_posibles:
+                try:
+                    worksheet = spreadsheet.worksheet(nombre_hoja)
+                    break
+                except:
+                    continue
+            
+            if not worksheet:
+                worksheet = spreadsheet.sheet1
             
             # Actualizar columna PROCESAR (columna M = 13)
             worksheet.update_cell(row_number, 13, estado)
@@ -356,6 +426,21 @@ class SalvumMultiplePlanillasConVPS:
                 runtime: {}
             };
         """)
+        
+        logger.info("✅ Navegador SÚPER HUMANO configurado CON PROXY VPS CHILE")
+        
+        # 📊 RESUMEN DE MEJORAS HUMANAS INTEGRADAS
+        logger.info("\n🤖 MEJORAS SÚPER HUMANAS ACTIVADAS:")
+        logger.info("  ✅ Proxy SOCKS VPS Chile (IP chilena garantizada)")
+        logger.info("  ✅ Anti-detección súper avanzada")
+        logger.info("  ✅ Esperas aleatorias entre 1-15 segundos")
+        logger.info("  ✅ Tipeo carácter por carácter con pausas")
+        logger.info("  ✅ Movimiento de mouse simulado")
+        logger.info("  ✅ Lectura de página como humano")
+        logger.info("  ✅ Scroll y navegación natural")
+        logger.info("  ✅ Pausas de 'satisfacción' y 'frustración'")
+        logger.info("  ✅ Timeouts extendidos (45s)")
+        logger.info("  ✅ Properties de navegador real")
         
     def _espera_humana(self, min_seg=1, max_seg=4, motivo="acción"):
         """Espera aleatoria que simula comportamiento humano"""
@@ -730,8 +815,8 @@ class SalvumMultiplePlanillasConVPS:
                     "//button[contains(text(), 'Nueva Solicitud')] | //a[contains(text(), 'Nueva Solicitud')]"
                 ))
             )
-            nueva_solicitud_btn.click()
-            time.sleep(5)
+            self._click_humano(nueva_solicitud_btn)
+            self._espera_humana(3, 6, "cargando nueva solicitud")
             
             # PASO 2: Datos del Cliente
             logger.info("📋 Llenando datos del cliente...")
@@ -742,9 +827,8 @@ class SalvumMultiplePlanillasConVPS:
                     "input[name*='rut'], input[id*='rut'], input[placeholder*='RUT']"
                 ))
             )
-            campo_rut.clear()
-            campo_rut.send_keys(str(cliente_data['RUT']))
-            time.sleep(2)
+            self._click_humano(campo_rut)
+            self._tipear_humano(campo_rut, str(cliente_data['RUT']))
             
             # Nombre (extraer primer nombre)
             nombre_partes = nombre.split()
@@ -777,8 +861,8 @@ class SalvumMultiplePlanillasConVPS:
             
             # Simular
             btn_simular = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Simular')]")
-            btn_simular.click()
-            time.sleep(8)
+            self._click_humano(btn_simular)
+            self._espera_humana(6, 10, "procesando simulación")
             
             # PASO 4: Continuar simulación
             self._click_continuar()
@@ -792,8 +876,8 @@ class SalvumMultiplePlanillasConVPS:
             btn_enviar = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Enviar')]"))
             )
-            btn_enviar.click()
-            time.sleep(10)
+            self._click_humano(btn_enviar)
+            self._espera_humana(8, 12, "enviando solicitud")
             
             # PASO 7: Capturar resultado
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
