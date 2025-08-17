@@ -440,27 +440,42 @@ class SalvumAutomacionCorregida:
         options.add_argument('--ignore-certificate-errors')
         options.add_argument('--disable-background-networking')
         
-        # Anti-detección
+        # Anti-detección mejorada
         options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_argument('--disable-extensions')
         options.add_argument('--disable-plugins')
-        options.add_argument('--disable-images')
         options.add_argument('--disable-web-security')
         options.add_argument('--disable-features=VizDisplayCompositor')
-        options.add_experimental_option('excludeSwitches', ['enable-automation'])
+        
+        # NUEVAS: Anti-detección avanzada
+        options.add_argument('--disable-automation')
+        options.add_argument('--disable-infobars') 
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--no-first-run')
+        options.add_argument('--no-service-autorun')
+        options.add_argument('--password-store=basic')
+        options.add_argument('--use-mock-keychain')
+        options.add_argument('--lang=es-CL')
+        options.add_argument('--accept-lang=es-CL,es;q=0.9,en;q=0.8')
+        
+        options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging'])
         options.add_experimental_option('useAutomationExtension', False)
         
-        # Preferencias con configuración de proxy
+        # Preferencias anti-detección
         prefs = {
             "profile.default_content_setting_values": {
                 "notifications": 2,
                 "media_stream": 2,
             },
             "profile.default_content_settings.popups": 0,
-            "profile.managed_default_content_settings.images": 2,
+            "profile.managed_default_content_settings.images": 1,  # Habilitar imágenes
             "profile.proxy_mode": "direct",
-            "profile.proxy": ""
+            "profile.proxy": "",
+            # Anti-detección de ubicación
+            "profile.default_content_setting_values.geolocation": 1,
+            # Configuración de idioma
+            "intl.accept_languages": "es-CL,es,en"
         }
         options.add_experimental_option("prefs", prefs)
         
