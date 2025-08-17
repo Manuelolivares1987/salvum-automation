@@ -1299,13 +1299,29 @@ class SalvumAutomacionCorregida:
             except:
                 logger.warning("⚠️ No se pudo llenar N° de serie C.I")
             
-            # Estado Civil → Seleccionar "Soltero/a"
+            # Estado Civil → Seleccionar "Soltero/a" (CORREGIDO PARA EVITAR DUPLICADOS)
             logger.info("💑 Seleccionando Estado Civil: Soltero/a")
             try:
                 select_civil = self.driver.find_element(By.CSS_SELECTOR, "select")
                 select_obj = Select(select_civil)
-                select_obj.select_by_visible_text("Soltero/a")
-                logger.info("✅ Estado Civil seleccionado: Soltero/a")
+                
+                # MÉTODO 1: Intentar por valor específico para evitar duplicados
+                try:
+                    select_obj.select_by_value("7: Object")  # Soltero/a real
+                    logger.info("✅ Estado Civil seleccionado por valor: Soltero/a")
+                except:
+                    # MÉTODO 2: Si falla, usar índice (última opción de Soltero/a)
+                    try:
+                        opciones = select_obj.options
+                        for i, opcion in enumerate(opciones):
+                            if opcion.text == "Soltero/a" and not opcion.get_attribute("disabled"):
+                                select_obj.select_by_index(i)
+                                logger.info(f"✅ Estado Civil seleccionado por índice {i}: Soltero/a")
+                                break
+                    except:
+                        # MÉTODO 3: Fallback - seleccionar último índice disponible
+                        select_obj.select_by_index(-1)
+                        logger.info("✅ Estado Civil seleccionado por fallback")
             except:
                 logger.warning("⚠️ No se pudo seleccionar Estado Civil")
             
