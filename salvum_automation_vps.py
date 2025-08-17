@@ -653,13 +653,29 @@ class SalvumAutomacionCorregida:
             usuario = os.getenv('SALVUM_USER')
             password = os.getenv('SALVUM_PASS')
             
+            # VERIFICACIÓN INICIAL DE CREDENCIALES
+            logger.info("🔑 VERIFICANDO CREDENCIALES INICIALES...")
+            if not usuario or len(usuario.strip()) == 0:
+                logger.error("❌ ERROR CRÍTICO: Variable SALVUM_USER vacía o no configurada")
+                return False
+            if not password or len(password.strip()) == 0:
+                logger.error("❌ ERROR CRÍTICO: Variable SALVUM_PASS vacía o no configurada")
+                return False
+            
             logger.info(f"👤 Usuario: {usuario}")
             logger.info("🔒 Password: [PROTEGIDO]")
+            logger.info(f"📊 Usuario válido: {len(usuario)} caracteres")
+            logger.info(f"📊 Password válido: {len(password)} caracteres")
+            
+            if len(usuario) < 3:
+                logger.warning("⚠️ Usuario sospechosamente corto")
+            if len(password) < 6:
+                logger.warning("⚠️ Password sospechosamente corto")
             
             logger.info("👁️ Simulando lectura humana de la página...")
             self._leer_pagina_humano()
             
-            self._espera_humana(3, 7, "comportamiento humano inicial")
+            self._espera_humana(5, 10, "comportamiento humano inicial - timing natural")
             
             logger.info("🔍 Buscando campos de login con selectores PRECISOS...")
             
@@ -713,22 +729,13 @@ class SalvumAutomacionCorregida:
             # Tipear usuario carácter por carácter
             self._tipear_humano(campo_usuario, usuario)
             
-            # EVENTOS ANGULAR ESPECÍFICOS PARA CAMPO USUARIO
+            # EVENTOS ANGULAR SIMPLIFICADOS PARA CAMPO USUARIO
             self.driver.execute_script("""
                 var element = arguments[0];
-                // Eventos de enfoque
                 element.focus();
-                element.dispatchEvent(new Event('focus', { bubbles: true }));
-                // Eventos de entrada
                 element.dispatchEvent(new Event('input', { bubbles: true }));
                 element.dispatchEvent(new Event('change', { bubbles: true }));
-                // Eventos Angular específicos
-                element.dispatchEvent(new Event('blur', { bubbles: true }));
-                element.dispatchEvent(new Event('focusout', { bubbles: true }));
-                // Trigger de validación Angular
-                if (element.hasAttribute('ng-model')) {
-                    angular.element(element).triggerHandler('input');
-                }
+                element.blur();
             """, campo_usuario)
             
             logger.info("✅ Usuario ingresado de forma humana")
@@ -745,28 +752,19 @@ class SalvumAutomacionCorregida:
             # Tipear contraseña carácter por carácter
             self._tipear_humano(campo_password, password)
             
-            # EVENTOS ANGULAR ESPECÍFICOS PARA CAMPO CONTRASEÑA
+            # EVENTOS ANGULAR SIMPLIFICADOS PARA CAMPO CONTRASEÑA
             self.driver.execute_script("""
                 var element = arguments[0];
-                // Eventos de enfoque
                 element.focus();
-                element.dispatchEvent(new Event('focus', { bubbles: true }));
-                // Eventos de entrada
                 element.dispatchEvent(new Event('input', { bubbles: true }));
                 element.dispatchEvent(new Event('change', { bubbles: true }));
-                // Eventos Angular específicos
-                element.dispatchEvent(new Event('blur', { bubbles: true }));
-                element.dispatchEvent(new Event('focusout', { bubbles: true }));
-                // Trigger de validación Angular
-                if (element.hasAttribute('ng-model')) {
-                    angular.element(element).triggerHandler('input');
-                }
+                element.blur();
             """, campo_password)
             
             logger.info("✅ Contraseña ingresada de forma humana")
             
-            # ESPERA ADICIONAL PARA QUE ANGULAR PROCESE TODO
-            self._espera_humana(3, 5, "verificando datos y esperando validación Angular")
+            # ESPERA ADICIONAL PARA QUE ANGULAR PROCESE TODO (más natural)
+            self._espera_humana(4, 7, "verificando datos y esperando validación Angular")
             
             # VERIFICAR ESTADO DE LOS CAMPOS ANTES DE CONTINUAR
             try:
@@ -818,75 +816,41 @@ class SalvumAutomacionCorregida:
             
             logger.info("🖱️ Haciendo click en botón INGRESAR...")
             
-            # MÉTODO MEJORADO PARA CLICK ANGULAR
+            # MÉTODO SIMPLIFICADO - UN SOLO CLICK NATURAL
             try:
-                # Enfoque del botón
+                # Enfoque del botón de forma natural
                 self.driver.execute_script("arguments[0].focus();", boton_submit)
-                self._espera_humana(0.5, 1, "enfocando botón")
+                self._espera_humana(0.5, 1, "enfocando botón naturalmente")
                 
-                # Click múltiple para asegurar detección Angular
-                logger.info("🔘 Método 1: Click directo...")
+                # UN SOLO CLICK HUMANO (sin métodos múltiples que pueden activar detección)
+                logger.info("🔘 Click humano único...")
                 self._click_humano(boton_submit)
                 
-                # Esperar un momento y verificar si cambió la página
-                self._espera_humana(2, 3, "esperando respuesta inicial")
+                # Esperar respuesta del servidor (timing más natural)
+                self._espera_humana(4, 7, "esperando respuesta del servidor")
                 
-                url_intermedia = self.driver.current_url
-                if "login" not in url_intermedia.lower():
-                    logger.info("✅ Login exitoso con método 1")
+                # Verificar si cambió la página
+                url_actual = self.driver.current_url
+                if "login" not in url_actual.lower():
+                    logger.info("✅ Login exitoso con click único")
                 else:
-                    # Método 2: Click JavaScript directo
-                    logger.info("🔘 Método 2: Click JavaScript...")
-                    self.driver.execute_script("arguments[0].click();", boton_submit)
-                    self._espera_humana(2, 3, "esperando respuesta JavaScript")
+                    logger.info("ℹ️ Aún en login, esperando más tiempo...")
+                    self._espera_humana(3, 5, "esperando procesamiento adicional")
                     
-                    url_intermedia2 = self.driver.current_url
-                    if "login" not in url_intermedia2.lower():
-                        logger.info("✅ Login exitoso con método 2")
-                    else:
-                        # Método 3: Eventos Angular específicos + Click
-                        logger.info("🔘 Método 3: Eventos Angular completos...")
-                        self.driver.execute_script("""
-                            var button = arguments[0];
-                            // Enfocar botón
-                            button.focus();
-                            // Eventos de mouse
-                            button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                            button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                            button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                            // Eventos específicos del botón
-                            button.dispatchEvent(new Event('click', { bubbles: true }));
-                            // Si tiene ng-click, intentar activarlo
-                            if (button.hasAttribute('ng-click')) {
-                                angular.element(button).triggerHandler('click');
-                            }
-                        """, boton_submit)
-                        self._espera_humana(2, 3, "esperando respuesta eventos Angular")
-                        
-                        url_intermedia3 = self.driver.current_url
-                        if "login" not in url_intermedia3.lower():
-                            logger.info("✅ Login exitoso con método 3")
-                        else:
-                            # Método 4: Simular Enter en el formulario
-                            logger.info("🔘 Método 4: Enter en formulario...")
-                            try:
-                                # Enviar Enter desde el campo de contraseña
-                                campo_password.send_keys(Keys.RETURN)
-                                self._espera_humana(2, 3, "esperando respuesta Enter")
-                                
-                                url_intermedia4 = self.driver.current_url
-                                if "login" not in url_intermedia4.lower():
-                                    logger.info("✅ Login exitoso con método 4 (Enter)")
-                            except:
-                                pass
+                    # Si sigue en login, intentar Enter como alternativa natural
+                    url_actual2 = self.driver.current_url
+                    if "login" in url_actual2.lower():
+                        logger.info("🔘 Intentando Enter como método alternativo...")
+                        campo_password.send_keys(Keys.RETURN)
+                        self._espera_humana(3, 5, "esperando respuesta Enter")
             
             except Exception as click_error:
-                logger.warning(f"Error en métodos de click: {click_error}")
-                # Fallback básico
+                logger.warning(f"Error en click: {click_error}")
+                # Fallback simple
                 boton_submit.click()
-                self._espera_humana(2, 3, "fallback click básico")
+                self._espera_humana(3, 5, "fallback click básico")
             
-            logger.info("🔘 Clicks en INGRESAR ejecutados")
+            logger.info("🔘 Login attempt ejecutado")
             
             logger.info("⏳ Esperando respuesta del servidor de forma humana...")
             
@@ -960,14 +924,49 @@ class SalvumAutomacionCorregida:
                 # Debug adicional para login fallido
                 logger.info("🔍 Analizando por qué falló el login...")
                 try:
-                    # Verificar si hay mensajes de error
-                    errores = self.driver.find_elements(By.CSS_SELECTOR, ".error, .alert, .warning, .text-danger")
-                    for error in errores:
-                        if error.is_displayed():
-                            logger.error(f"💬 Mensaje de error: {error.text}")
+                    # VERIFICAR CREDENCIALES
+                    logger.info("🔑 Verificando credenciales...")
+                    if not usuario or len(usuario.strip()) == 0:
+                        logger.error("❌ CREDENCIAL FALTANTE: Usuario vacío o None")
+                    if not password or len(password.strip()) == 0:
+                        logger.error("❌ CREDENCIAL FALTANTE: Password vacío o None")
                     
-                    # Verificar el estado actual de los campos
+                    logger.info(f"📋 Usuario configurado: '{usuario}' (longitud: {len(usuario) if usuario else 0})")
+                    logger.info(f"📋 Password configurado: [longitud: {len(password) if password else 0}]")
+                    
+                    # VERIFICAR RESPUESTA DEL SERVIDOR
+                    logger.info("🌐 Analizando respuesta del servidor...")
+                    
+                    # Buscar mensajes de error específicos de login
+                    mensajes_error_login = self.driver.find_elements(
+                        By.CSS_SELECTOR, 
+                        ".error, .alert, .warning, .text-danger, .invalid-feedback, .error-message, [class*='error'], [class*='invalid']"
+                    )
+                    
+                    errores_encontrados = []
+                    for error in mensajes_error_login:
+                        try:
+                            if error.is_displayed() and error.text.strip():
+                                texto_error = error.text.strip()
+                                errores_encontrados.append(texto_error)
+                                logger.error(f"💬 Error del servidor: {texto_error}")
+                        except:
+                            pass
+                    
+                    if not errores_encontrados:
+                        logger.info("ℹ️ No se encontraron mensajes de error visibles")
+                    
+                    # VERIFICAR ESTADO DEL FORMULARIO
+                    logger.info("📋 Analizando estado del formulario...")
                     try:
+                        # Verificar si el formulario tiene clases de error
+                        form_elements = self.driver.find_elements(By.CSS_SELECTOR, "form, .form, [class*='form']")
+                        for form in form_elements:
+                            clases_form = form.get_attribute("class")
+                            if clases_form and ("error" in clases_form.lower() or "invalid" in clases_form.lower()):
+                                logger.warning(f"⚠️ Formulario con clases de error: {clases_form}")
+                        
+                        # Verificar el estado final de los campos
                         usuario_valor_final = campo_usuario.get_attribute("value")
                         usuario_clases_final = campo_usuario.get_attribute("class")
                         password_clases_final = campo_password.get_attribute("class")
@@ -975,36 +974,75 @@ class SalvumAutomacionCorregida:
                         logger.info(f"📋 Estado final Usuario - Valor: '{usuario_valor_final}', Clases: '{usuario_clases_final}'")
                         logger.info(f"📋 Estado final Password - Clases: '{password_clases_final}'")
                         
+                        # Verificar si los campos se resetearon (indica rechazo del servidor)
+                        if not usuario_valor_final or len(usuario_valor_final.strip()) == 0:
+                            logger.warning("⚠️ CAMPOS RESETEADOS: El servidor rechazó las credenciales o detectó automatización")
+                            
+                            # Verificar si hay indicadores de detección de bot
+                            indicadores_bot = [
+                                "captcha", "recaptcha", "human", "verification", "robot", "bot", 
+                                "security", "suspicious", "blocked", "banned"
+                            ]
+                            
+                            page_text = self.driver.page_source.lower()
+                            for indicador in indicadores_bot:
+                                if indicador in page_text:
+                                    logger.warning(f"🤖 POSIBLE DETECCIÓN DE BOT: Encontrado '{indicador}' en la página")
+                        
                         # Verificar si los campos tienen las clases de validación correctas
                         if "ng-valid" in usuario_clases_final and "ng-valid" in password_clases_final:
-                            logger.info("✅ Campos válidos según Angular")
+                            logger.info("✅ Campos válidos según Angular al final")
                         else:
-                            logger.warning("⚠️ Campos pueden tener errores de validación Angular")
+                            logger.warning("⚠️ Campos con errores de validación Angular al final")
+                            
+                            # Verificar validaciones específicas
+                            if "ng-invalid" in usuario_clases_final:
+                                logger.warning("⚠️ Usuario marcado como inválido por Angular")
+                            if "ng-invalid" in password_clases_final:
+                                logger.warning("⚠️ Password marcado como inválido por Angular")
+                                
+                            if "ng-untouched" in usuario_clases_final:
+                                logger.warning("⚠️ Usuario marcado como no tocado (reseteo completo)")
+                            if "ng-pristine" in usuario_clases_final:
+                                logger.warning("⚠️ Usuario marcado como pristine (reseteo completo)")
                             
                     except Exception as estado_error:
                         logger.warning(f"Error verificando estado final: {estado_error}")
                     
+                    # VERIFICAR HEADERS Y RESPUESTA DE RED
+                    logger.info("🌍 Verificando estado de la conexión...")
+                    try:
+                        # Verificar si la página se recargó (indica envío de formulario)
+                        performance_logs = self.driver.execute_script("""
+                            return {
+                                'readyState': document.readyState,
+                                'URL': window.location.href,
+                                'timestamp': Date.now()
+                            };
+                        """)
+                        logger.info(f"📊 Estado de la página: {performance_logs}")
+                        
+                    except Exception as network_error:
+                        logger.warning(f"Error verificando red: {network_error}")
+                    
+                    # RECOMENDACIONES BASADAS EN EL ANÁLISIS
+                    logger.info("💡 RECOMENDACIONES:")
+                    if not errores_encontrados and not usuario_valor_final:
+                        logger.info("   1. Verificar que las credenciales en las variables de entorno sean correctas")
+                        logger.info("   2. El sitio puede haber añadido protección anti-bot")
+                        logger.info("   3. Considerar añadir delay más largo entre acciones")
+                        logger.info("   4. Verificar si el sitio requiere captcha o 2FA ahora")
+                    
                     # Screenshot adicional para debug
-                    self.driver.save_screenshot('debug_login_fallido_angular.png')
+                    self.driver.save_screenshot('debug_login_fallido_completo.png')
                     
-                    # Verificar si hay elementos de carga o procesamiento
-                    elementos_carga = self.driver.find_elements(
-                        By.CSS_SELECTOR, 
-                        ".loading, .spinner, [class*='load'], [class*='process']"
-                    )
-                    
-                    if elementos_carga:
-                        logger.info(f"⏳ Elementos de carga encontrados: {len(elementos_carga)}")
-                        logger.info("💡 El servidor podría estar procesando la solicitud...")
-                        
-                        # Esperar adicional por si está procesando
-                        self._espera_humana(5, 8, "esperando procesamiento del servidor")
-                        
-                        # Verificar una vez más
-                        url_final = self.driver.current_url
-                        if url_final != nueva_url:
-                            logger.info(f"✅ ¡Login exitoso después de espera adicional! Nueva URL: {url_final}")
-                            return True
+                    # Guardar HTML para análisis
+                    try:
+                        with open('debug_login_page_source.html', 'w', encoding='utf-8') as f:
+                            f.write(self.driver.page_source)
+                        logger.info("📄 HTML guardado en debug_login_page_source.html para análisis")
+                    except:
+                        pass
                     
                 except Exception as debug_error:
                     logger.warning(f"Error en debug: {debug_error}")
