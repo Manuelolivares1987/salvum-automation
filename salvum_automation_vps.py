@@ -645,8 +645,8 @@ class SalvumAutomacionPrecisa:
         return False
     
     def _realizar_login_optimizado(self):
-        """Método de login SÚPER HUMANO"""
-        logger.info("🔑 INICIANDO PROCESO DE LOGIN SÚPER HUMANO")
+        """Método de login con selectores PRECISOS basados en inspección real"""
+        logger.info("🔑 INICIANDO LOGIN CON SELECTORES PRECISOS")
         logger.info("-" * 50)
         
         try:
@@ -661,112 +661,99 @@ class SalvumAutomacionPrecisa:
             
             self._espera_humana(3, 7, "comportamiento humano inicial")
             
-            logger.info("🔍 Buscando campos de login de forma humana...")
+            logger.info("🔍 Buscando campos de login con selectores PRECISOS...")
             
-            campo_usuario = None
-            campo_password = None
-            
-            selectores_usuario = [
-                "input[type='text']",
-                "input[type='email']", 
-                "input[name*='usuario']",
-                "input[name*='email']",
-                "input[name*='user']",
-                "input[id*='usuario']",
-                "input[id*='email']"
-            ]
-            
-            for selector in selectores_usuario:
-                try:
-                    campos = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    for campo in campos:
-                        if campo.is_displayed() and campo.is_enabled():
-                            self._mover_mouse_humano(campo)
-                            self._espera_humana(0.5, 1, "inspeccionando campo")
-                            
-                            campo_usuario = campo
-                            logger.info(f"✅ Campo usuario encontrado: {selector}")
-                            break
-                    if campo_usuario:
-                        break
-                except:
-                    continue
-            
+            # CAMPO USUARIO - Selector exacto: input[id="Usuario"][name="Usuario"]
+            logger.info("👤 Buscando campo Usuario...")
             try:
-                campo_password = self.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
-                if campo_password.is_displayed() and campo_password.is_enabled():
-                    self._mover_mouse_humano(campo_password)
-                    self._espera_humana(0.5, 1, "inspeccionando password")
-                    logger.info("✅ Campo password encontrado")
-                else:
-                    campo_password = None
-            except:
-                logger.error("❌ No se encontró campo password")
-                return False
+                campo_usuario = self.wait.until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "input[id='Usuario'][name='Usuario']"))
+                )
+                logger.info("✅ Campo Usuario encontrado con selector exacto")
+                self._mover_mouse_humano(campo_usuario)
+                self._espera_humana(0.5, 1, "inspeccionando campo usuario")
+            except Exception as e:
+                logger.error(f"❌ No se encontró campo Usuario con selector exacto: {e}")
+                # Fallback a selectores genéricos
+                try:
+                    campo_usuario = self.driver.find_element(By.CSS_SELECTOR, "input[type='text']")
+                    logger.info("⚠️ Campo Usuario encontrado con selector genérico")
+                except:
+                    logger.error("❌ No se encontró campo Usuario")
+                    return False
             
-            if not campo_usuario:
-                logger.error("❌ No se encontró campo usuario")
-                return False
+            # CAMPO CONTRASEÑA - Selector exacto: input[id="Contraseña"][name="Contraseña"]
+            logger.info("🔒 Buscando campo Contraseña...")
+            try:
+                campo_password = self.wait.until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "input[id='Contraseña'][name='Contraseña']"))
+                )
+                logger.info("✅ Campo Contraseña encontrado con selector exacto")
+                self._mover_mouse_humano(campo_password)
+                self._espera_humana(0.5, 1, "inspeccionando campo contraseña")
+            except Exception as e:
+                logger.error(f"❌ No se encontró campo Contraseña con selector exacto: {e}")
+                # Fallback a selector genérico
+                try:
+                    campo_password = self.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+                    logger.info("⚠️ Campo Contraseña encontrado con selector genérico")
+                except:
+                    logger.error("❌ No se encontró campo Contraseña")
+                    return False
             
             logger.info("✏️ Llenando campos de forma humana...")
             
+            # LLENAR USUARIO
             logger.info("👤 Llenando usuario...")
             self._click_humano(campo_usuario)
+            # Asegurar que el campo esté limpio
+            campo_usuario.clear()
+            self._espera_humana(0.5, 1, "limpiando campo usuario")
             self._tipear_humano(campo_usuario, usuario)
             logger.info("✅ Usuario ingresado de forma humana")
             
             self._espera_humana(1, 3, "pausa entre campos")
             
-            logger.info("🔒 Llenando password...")
+            # LLENAR CONTRASEÑA
+            logger.info("🔒 Llenando contraseña...")
             self._click_humano(campo_password)
+            # Asegurar que el campo esté limpio
+            campo_password.clear()
+            self._espera_humana(0.5, 1, "limpiando campo contraseña")
             self._tipear_humano(campo_password, password)
-            logger.info("✅ Password ingresado de forma humana")
+            logger.info("✅ Contraseña ingresada de forma humana")
             
             self._espera_humana(2, 4, "verificando datos antes de enviar")
             
-            self.driver.save_screenshot('salvum_antes_submit_humano.png')
-            logger.info("📸 Screenshot antes de submit")
+            self.driver.save_screenshot('salvum_antes_submit_precisos.png')
+            logger.info("📸 Screenshot antes de submit con selectores precisos")
             
-            logger.info("🔘 Buscando botón de submit de forma humana...")
-            
-            boton_submit = None
-            
+            # BOTÓN INGRESAR - Selector exacto: button[value="INGRESAR"]
+            logger.info("🔘 Buscando botón INGRESAR con selector preciso...")
             try:
-                botones = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit'], input[type='submit']")
-                for btn in botones:
-                    if btn.is_displayed() and btn.is_enabled():
-                        self._mover_mouse_humano(btn)
-                        self._espera_humana(0.5, 1, "inspeccionando botón")
-                        boton_submit = btn
-                        logger.info("✅ Botón submit encontrado por tipo")
-                        break
-            except:
-                pass
-            
-            if not boton_submit:
+                boton_submit = self.wait.until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "button[value='INGRESAR']"))
+                )
+                logger.info("✅ Botón INGRESAR encontrado con selector exacto")
+                self._mover_mouse_humano(boton_submit)
+                self._espera_humana(0.5, 1, "inspeccionando botón")
+            except Exception as e:
+                logger.warning(f"⚠️ No se encontró con selector exacto: {e}")
+                # Fallback a selector por texto
                 try:
-                    boton_submit = self.driver.find_element(By.XPATH, "//button[contains(text(), 'INGRESAR') or contains(text(), 'Ingresar') or contains(text(), 'LOGIN')]")
-                    if boton_submit.is_displayed() and boton_submit.is_enabled():
-                        self._mover_mouse_humano(boton_submit)
-                        logger.info("✅ Botón submit encontrado por texto")
-                    else:
-                        boton_submit = None
+                    boton_submit = self.driver.find_element(By.XPATH, "//button[contains(text(), 'INGRESAR')]")
+                    logger.info("⚠️ Botón INGRESAR encontrado por texto")
                 except:
-                    pass
+                    logger.error("❌ No se encontró botón INGRESAR")
+                    return False
             
-            if boton_submit:
-                logger.info("🖱️ Haciendo click en botón de forma humana...")
-                self._click_humano(boton_submit)
-                logger.info("🔘 Click humano ejecutado")
-            else:
-                logger.info("⌨️ Usando Enter como humano...")
-                self._espera_humana(0.5, 1, "preparando Enter")
-                campo_password.send_keys(Keys.RETURN)
-                self._espera_humana(1, 2, "después de Enter")
-                logger.info("⌨️ Enter enviado")
+            logger.info("🖱️ Haciendo click en botón INGRESAR...")
+            self._click_humano(boton_submit)
+            logger.info("🔘 Click en INGRESAR ejecutado")
             
             logger.info("⏳ Esperando respuesta del servidor de forma humana...")
             
+            # Esperar respuesta del servidor
             for i in range(3):
                 self._espera_humana(3, 5, f"esperando respuesta {i+1}/3")
                 
@@ -778,8 +765,8 @@ class SalvumAutomacionPrecisa:
                 except:
                     pass
             
-            self.driver.save_screenshot('salvum_despues_submit_humano.png')
-            logger.info("📸 Screenshot después de submit")
+            self.driver.save_screenshot('salvum_despues_submit_precisos.png')
+            logger.info("📸 Screenshot después de submit con selectores precisos")
             
             nueva_url = self.driver.current_url
             nuevo_titulo = self.driver.title
@@ -789,18 +776,41 @@ class SalvumAutomacionPrecisa:
             
             self._espera_humana(1, 2, "leyendo resultado")
             
+            # Verificar si el login fue exitoso
             if nueva_url != "https://prescriptores.salvum.cl/login" and "login" not in nueva_url.lower():
-                logger.info("🎉 ¡LOGIN SÚPER HUMANO EXITOSO! - URL cambió")
-                
+                logger.info("🎉 ¡LOGIN CON SELECTORES PRECISOS EXITOSO! - URL cambió")
                 self._leer_pagina_humano()
-                
                 return True
             else:
-                logger.info("❌ Login falló - permanece en página de login")
+                logger.error("❌ Login falló - permanece en página de login")
+                
+                # Debug adicional para login fallido
+                logger.info("🔍 Analizando por qué falló el login...")
+                try:
+                    # Verificar si hay mensajes de error
+                    errores = self.driver.find_elements(By.CSS_SELECTOR, ".error, .alert, .warning")
+                    for error in errores:
+                        if error.is_displayed():
+                            logger.error(f"💬 Mensaje de error: {error.text}")
+                    
+                    # Verificar el estado de los campos
+                    try:
+                        usuario_valor = campo_usuario.get_attribute("value")
+                        logger.info(f"📋 Valor campo usuario: '{usuario_valor}'")
+                    except:
+                        pass
+                    
+                    # Screenshot adicional para debug
+                    self.driver.save_screenshot('debug_login_fallido.png')
+                    
+                except Exception as debug_error:
+                    logger.warning(f"Error en debug: {debug_error}")
+                
                 return False
                 
         except Exception as e:
-            logger.error(f"❌ Error en proceso de login súper humano: {e}")
+            logger.error(f"❌ Error en proceso de login con selectores precisos: {e}")
+            self.driver.save_screenshot('error_login_precisos.png')
             return False
     
     def procesar_cliente_individual(self, cliente_data):
