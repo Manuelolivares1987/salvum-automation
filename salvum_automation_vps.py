@@ -703,27 +703,96 @@ class SalvumAutomacionCorregida:
             
             logger.info("✏️ Llenando campos de forma humana...")
             
-            # LLENAR USUARIO
+            # LLENAR USUARIO CON EVENTOS ANGULAR MEJORADOS
             logger.info("👤 Llenando usuario...")
             self._click_humano(campo_usuario)
             # Asegurar que el campo esté limpio
             campo_usuario.clear()
             self._espera_humana(0.5, 1, "limpiando campo usuario")
+            
+            # Tipear usuario carácter por carácter
             self._tipear_humano(campo_usuario, usuario)
+            
+            # EVENTOS ANGULAR ESPECÍFICOS PARA CAMPO USUARIO
+            self.driver.execute_script("""
+                var element = arguments[0];
+                // Eventos de enfoque
+                element.focus();
+                element.dispatchEvent(new Event('focus', { bubbles: true }));
+                // Eventos de entrada
+                element.dispatchEvent(new Event('input', { bubbles: true }));
+                element.dispatchEvent(new Event('change', { bubbles: true }));
+                // Eventos Angular específicos
+                element.dispatchEvent(new Event('blur', { bubbles: true }));
+                element.dispatchEvent(new Event('focusout', { bubbles: true }));
+                // Trigger de validación Angular
+                if (element.hasAttribute('ng-model')) {
+                    angular.element(element).triggerHandler('input');
+                }
+            """, campo_usuario)
+            
             logger.info("✅ Usuario ingresado de forma humana")
             
             self._espera_humana(1, 3, "pausa entre campos")
             
-            # LLENAR CONTRASEÑA
+            # LLENAR CONTRASEÑA CON EVENTOS ANGULAR MEJORADOS
             logger.info("🔒 Llenando contraseña...")
             self._click_humano(campo_password)
             # Asegurar que el campo esté limpio
             campo_password.clear()
             self._espera_humana(0.5, 1, "limpiando campo contraseña")
+            
+            # Tipear contraseña carácter por carácter
             self._tipear_humano(campo_password, password)
+            
+            # EVENTOS ANGULAR ESPECÍFICOS PARA CAMPO CONTRASEÑA
+            self.driver.execute_script("""
+                var element = arguments[0];
+                // Eventos de enfoque
+                element.focus();
+                element.dispatchEvent(new Event('focus', { bubbles: true }));
+                // Eventos de entrada
+                element.dispatchEvent(new Event('input', { bubbles: true }));
+                element.dispatchEvent(new Event('change', { bubbles: true }));
+                // Eventos Angular específicos
+                element.dispatchEvent(new Event('blur', { bubbles: true }));
+                element.dispatchEvent(new Event('focusout', { bubbles: true }));
+                // Trigger de validación Angular
+                if (element.hasAttribute('ng-model')) {
+                    angular.element(element).triggerHandler('input');
+                }
+            """, campo_password)
+            
             logger.info("✅ Contraseña ingresada de forma humana")
             
-            self._espera_humana(2, 4, "verificando datos antes de enviar")
+            # ESPERA ADICIONAL PARA QUE ANGULAR PROCESE TODO
+            self._espera_humana(3, 5, "verificando datos y esperando validación Angular")
+            
+            # VERIFICAR ESTADO DE LOS CAMPOS ANTES DE CONTINUAR
+            try:
+                usuario_valor = campo_usuario.get_attribute("value")
+                password_valor = campo_password.get_attribute("value")
+                usuario_clases = campo_usuario.get_attribute("class")
+                password_clases = campo_password.get_attribute("class")
+                
+                logger.info(f"📋 Estado Usuario - Valor: '{usuario_valor}', Clases: '{usuario_clases}'")
+                logger.info(f"📋 Estado Password - Valor: [PROTEGIDO], Clases: '{password_clases}'")
+                
+                # Verificar que los campos tienen los valores correctos
+                if not usuario_valor or len(usuario_valor.strip()) == 0:
+                    logger.warning("⚠️ Campo usuario parece vacío, reintentando...")
+                    campo_usuario.clear()
+                    campo_usuario.send_keys(usuario)
+                    self._espera_humana(1, 2, "rellenando usuario")
+                
+                if not password_valor or len(password_valor.strip()) == 0:
+                    logger.warning("⚠️ Campo contraseña parece vacío, reintentando...")
+                    campo_password.clear()
+                    campo_password.send_keys(password)
+                    self._espera_humana(1, 2, "rellenando contraseña")
+                    
+            except Exception as verificacion_error:
+                logger.warning(f"Error verificando campos: {verificacion_error}")
             
             self.driver.save_screenshot('salvum_antes_submit_precisos.png')
             logger.info("📸 Screenshot antes de submit con selectores precisos")
@@ -748,22 +817,126 @@ class SalvumAutomacionCorregida:
                     return False
             
             logger.info("🖱️ Haciendo click en botón INGRESAR...")
-            self._click_humano(boton_submit)
-            logger.info("🔘 Click en INGRESAR ejecutado")
+            
+            # MÉTODO MEJORADO PARA CLICK ANGULAR
+            try:
+                # Enfoque del botón
+                self.driver.execute_script("arguments[0].focus();", boton_submit)
+                self._espera_humana(0.5, 1, "enfocando botón")
+                
+                # Click múltiple para asegurar detección Angular
+                logger.info("🔘 Método 1: Click directo...")
+                self._click_humano(boton_submit)
+                
+                # Esperar un momento y verificar si cambió la página
+                self._espera_humana(2, 3, "esperando respuesta inicial")
+                
+                url_intermedia = self.driver.current_url
+                if "login" not in url_intermedia.lower():
+                    logger.info("✅ Login exitoso con método 1")
+                else:
+                    # Método 2: Click JavaScript directo
+                    logger.info("🔘 Método 2: Click JavaScript...")
+                    self.driver.execute_script("arguments[0].click();", boton_submit)
+                    self._espera_humana(2, 3, "esperando respuesta JavaScript")
+                    
+                    url_intermedia2 = self.driver.current_url
+                    if "login" not in url_intermedia2.lower():
+                        logger.info("✅ Login exitoso con método 2")
+                    else:
+                        # Método 3: Eventos Angular específicos + Click
+                        logger.info("🔘 Método 3: Eventos Angular completos...")
+                        self.driver.execute_script("""
+                            var button = arguments[0];
+                            // Enfocar botón
+                            button.focus();
+                            // Eventos de mouse
+                            button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                            button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                            button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                            // Eventos específicos del botón
+                            button.dispatchEvent(new Event('click', { bubbles: true }));
+                            // Si tiene ng-click, intentar activarlo
+                            if (button.hasAttribute('ng-click')) {
+                                angular.element(button).triggerHandler('click');
+                            }
+                        """, boton_submit)
+                        self._espera_humana(2, 3, "esperando respuesta eventos Angular")
+                        
+                        url_intermedia3 = self.driver.current_url
+                        if "login" not in url_intermedia3.lower():
+                            logger.info("✅ Login exitoso con método 3")
+                        else:
+                            # Método 4: Simular Enter en el formulario
+                            logger.info("🔘 Método 4: Enter en formulario...")
+                            try:
+                                # Enviar Enter desde el campo de contraseña
+                                campo_password.send_keys(Keys.RETURN)
+                                self._espera_humana(2, 3, "esperando respuesta Enter")
+                                
+                                url_intermedia4 = self.driver.current_url
+                                if "login" not in url_intermedia4.lower():
+                                    logger.info("✅ Login exitoso con método 4 (Enter)")
+                            except:
+                                pass
+            
+            except Exception as click_error:
+                logger.warning(f"Error en métodos de click: {click_error}")
+                # Fallback básico
+                boton_submit.click()
+                self._espera_humana(2, 3, "fallback click básico")
+            
+            logger.info("🔘 Clicks en INGRESAR ejecutados")
             
             logger.info("⏳ Esperando respuesta del servidor de forma humana...")
             
-            # Esperar respuesta del servidor
-            for i in range(3):
-                self._espera_humana(3, 5, f"esperando respuesta {i+1}/3")
+            # ESPERA EXTENDIDA CON VERIFICACIONES INTERMEDIAS
+            login_exitoso = False
+            for i in range(6):  # Aumentado de 3 a 6 intentos
+                self._espera_humana(2, 4, f"esperando respuesta {i+1}/6")
                 
                 try:
                     url_actual = self.driver.current_url
-                    if "login" not in url_actual.lower():
-                        logger.info(f"✅ Página cambió durante espera: {url_actual}")
+                    titulo_actual = self.driver.title
+                    
+                    # Verificaciones múltiples de éxito
+                    if (url_actual != "https://prescriptores.salvum.cl/login" and 
+                        "login" not in url_actual.lower()) or \
+                       ("credit-request" in url_actual.lower()) or \
+                       ("dashboard" in url_actual.lower()) or \
+                       ("solicitud" in titulo_actual.lower()):
+                        
+                        logger.info(f"✅ Página cambió durante espera {i+1}: {url_actual}")
+                        login_exitoso = True
                         break
                 except:
                     pass
+            
+            # VERIFICACIÓN ADICIONAL: Buscar elementos que indiquen login exitoso
+            if not login_exitoso:
+                try:
+                    # Buscar elementos que solo aparecen después del login
+                    elementos_post_login = self.driver.find_elements(
+                        By.CSS_SELECTOR, 
+                        "button[value='NUEVA SOLICITUD'], .dashboard, [href*='logout'], [href*='cerrar']"
+                    )
+                    
+                    if elementos_post_login:
+                        logger.info(f"✅ Elementos post-login encontrados: {len(elementos_post_login)}")
+                        login_exitoso = True
+                    else:
+                        # Verificar si hay mensajes de error específicos
+                        mensajes_error = self.driver.find_elements(
+                            By.CSS_SELECTOR, 
+                            ".error, .alert-danger, .text-danger, [class*='error']"
+                        )
+                        
+                        for error in mensajes_error:
+                            if error.is_displayed() and error.text.strip():
+                                logger.error(f"💬 Mensaje de error encontrado: {error.text}")
+                        
+                except Exception as verificacion_error:
+                    logger.warning(f"Error en verificación adicional: {verificacion_error}")
             
             self.driver.save_screenshot('salvum_despues_submit_precisos.png')
             logger.info("📸 Screenshot después de submit con selectores precisos")
@@ -777,7 +950,7 @@ class SalvumAutomacionCorregida:
             self._espera_humana(1, 2, "leyendo resultado")
             
             # Verificar si el login fue exitoso
-            if nueva_url != "https://prescriptores.salvum.cl/login" and "login" not in nueva_url.lower():
+            if login_exitoso or (nueva_url != "https://prescriptores.salvum.cl/login" and "login" not in nueva_url.lower()):
                 logger.info("🎉 ¡LOGIN CON SELECTORES PRECISOS EXITOSO! - URL cambió")
                 self._leer_pagina_humano()
                 return True
@@ -788,20 +961,50 @@ class SalvumAutomacionCorregida:
                 logger.info("🔍 Analizando por qué falló el login...")
                 try:
                     # Verificar si hay mensajes de error
-                    errores = self.driver.find_elements(By.CSS_SELECTOR, ".error, .alert, .warning")
+                    errores = self.driver.find_elements(By.CSS_SELECTOR, ".error, .alert, .warning, .text-danger")
                     for error in errores:
                         if error.is_displayed():
                             logger.error(f"💬 Mensaje de error: {error.text}")
                     
-                    # Verificar el estado de los campos
+                    # Verificar el estado actual de los campos
                     try:
-                        usuario_valor = campo_usuario.get_attribute("value")
-                        logger.info(f"📋 Valor campo usuario: '{usuario_valor}'")
-                    except:
-                        pass
+                        usuario_valor_final = campo_usuario.get_attribute("value")
+                        usuario_clases_final = campo_usuario.get_attribute("class")
+                        password_clases_final = campo_password.get_attribute("class")
+                        
+                        logger.info(f"📋 Estado final Usuario - Valor: '{usuario_valor_final}', Clases: '{usuario_clases_final}'")
+                        logger.info(f"📋 Estado final Password - Clases: '{password_clases_final}'")
+                        
+                        # Verificar si los campos tienen las clases de validación correctas
+                        if "ng-valid" in usuario_clases_final and "ng-valid" in password_clases_final:
+                            logger.info("✅ Campos válidos según Angular")
+                        else:
+                            logger.warning("⚠️ Campos pueden tener errores de validación Angular")
+                            
+                    except Exception as estado_error:
+                        logger.warning(f"Error verificando estado final: {estado_error}")
                     
                     # Screenshot adicional para debug
-                    self.driver.save_screenshot('debug_login_fallido.png')
+                    self.driver.save_screenshot('debug_login_fallido_angular.png')
+                    
+                    # Verificar si hay elementos de carga o procesamiento
+                    elementos_carga = self.driver.find_elements(
+                        By.CSS_SELECTOR, 
+                        ".loading, .spinner, [class*='load'], [class*='process']"
+                    )
+                    
+                    if elementos_carga:
+                        logger.info(f"⏳ Elementos de carga encontrados: {len(elementos_carga)}")
+                        logger.info("💡 El servidor podría estar procesando la solicitud...")
+                        
+                        # Esperar adicional por si está procesando
+                        self._espera_humana(5, 8, "esperando procesamiento del servidor")
+                        
+                        # Verificar una vez más
+                        url_final = self.driver.current_url
+                        if url_final != nueva_url:
+                            logger.info(f"✅ ¡Login exitoso después de espera adicional! Nueva URL: {url_final}")
+                            return True
                     
                 except Exception as debug_error:
                     logger.warning(f"Error en debug: {debug_error}")
