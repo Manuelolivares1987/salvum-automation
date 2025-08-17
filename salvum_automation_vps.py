@@ -472,7 +472,7 @@ class SalvumAutomacionCorregida:
             
             self.driver.set_page_load_timeout(90)
             self.driver.implicitly_wait(20)
-            self.wait = WebDriverWait(self.driver, 30)
+            self.wait = WebDriverWait(self.driver, 45)  # Aumentado para Angular
             
             self.driver.execute_script("""
                 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
@@ -994,33 +994,194 @@ class SalvumAutomacionCorregida:
         try:
             # ============= PÁGINA 2: CONFIGURACIÓN DE FINANCIAMIENTO =============
             logger.info("📄 PÁGINA 2: Configuración de Financiamiento Angular")
-            self._espera_humana(4, 7, "cargando página de financiamiento completamente")
+            
+            # ESPERA EXTENDIDA PARA ANGULAR
+            logger.info("⏳ Esperando carga completa de Angular...")
+            self._espera_humana(5, 8, "cargando página de financiamiento completamente")
+            
+            # DEBUG: Información de la página actual
+            try:
+                url_actual = self.driver.current_url
+                titulo_actual = self.driver.title
+                logger.info(f"📍 URL actual: {url_actual}")
+                logger.info(f"📄 Título actual: {titulo_actual}")
+                
+                # Verificar si hay elementos Angular cargando
+                elementos_ng = self.driver.find_elements(By.CSS_SELECTOR, "[ng-reflect], [_ngcontent]")
+                logger.info(f"🅰️ Elementos Angular detectados: {len(elementos_ng)}")
+                
+                # Verificar selects disponibles
+                selects_totales = self.driver.find_elements(By.CSS_SELECTOR, "select")
+                logger.info(f"📋 Total selects en página: {len(selects_totales)}")
+                
+            except Exception as debug_error:
+                logger.warning(f"Error en debug inicial: {debug_error}")
+            
+            # SCREENSHOT ANTES DE INTENTAR SELECCIÓN
+            self.driver.save_screenshot(f"antes_seleccion_producto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+            logger.info("📸 Screenshot antes de selección de producto")
             
             # 1. ¿Qué se va a financiar? → Seleccionar "Casas modulares"
-            logger.info("🏠 Seleccionando: Casas modulares (Componente Angular)")
+            logger.info("🏠 Seleccionando: Casas modulares (Selectores precisos del DevTools)")
             try:
-                # NUEVO: Buscar el div que simula el select angular
-                combo_container = self.wait.until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, "div.combo-cont"))
-                )
+                producto_seleccionado = False
                 
-                logger.info("✅ Combo container Angular encontrado")
+                # ESTRATEGIA 1: Usar el componente form-select específico
+                logger.info("🔍 Estrategia 1: Componente form-select...")
+                try:
+                    # Buscar el componente form-select por su label
+                    form_select = self.driver.find_element(
+                        By.CSS_SELECTOR, 
+                        "form-select[label='¿Qué se va a financiar?']"
+                    )
+                    logger.info("✅ Componente form-select encontrado")
+                    
+                    # Buscar el select interno con las clases específicas del DevTools
+                    select_interno = form_select.find_element(
+                        By.CSS_SELECTOR, 
+                        "select.ng-pristine.ng-invalid.ng-touched"
+                    )
+                    
+                    if select_interno.is_displayed():
+                        select_obj = Select(select_interno)
+                        opciones = [opt.text.strip() for opt in select_obj.options]
+                        logger.info(f"📋 Opciones en form-select: {opciones}")
+                        
+                        if "Casas modulares" in opciones:
+                            select_obj.select_by_visible_text("Casas modulares")
+                            logger.info("✅ Producto seleccionado con form-select: Casas modulares")
+                            producto_seleccionado = True
+                    
+                except Exception as e:
+                    logger.warning(f"Estrategia 1 falló: {e}")
                 
-                # Hacer click en el div para abrir las opciones
-                self._click_humano(combo_container)
-                self._espera_humana(1, 2, "esperando que se abran las opciones")
+                # ESTRATEGIA 2: Buscar por div.combo-cont.is-focus específico
+                if not producto_seleccionado:
+                    logger.info("🔍 Estrategia 2: div.combo-cont.is-focus...")
+                    try:
+                        combo_container = self.driver.find_element(
+                            By.CSS_SELECTOR, 
+                            "div.combo-cont.is-focus.normal-border"
+                        )
+                        logger.info("✅ Combo container específico encontrado")
+                        
+                        # Hacer click para activar si es necesario
+                        self._click_humano(combo_container)
+                        self._espera_humana(1, 2, "activando combo específico")
+                        
+                        # Buscar el select dentro del combo
+                        select_combo = combo_container.find_element(By.CSS_SELECTOR, "select")
+                        select_obj = Select(select_combo)
+                        opciones = [opt.text.strip() for opt in select_obj.options]
+                        logger.info(f"📋 Opciones en combo-cont: {opciones}")
+                        
+                        if "Casas modulares" in opciones:
+                            select_obj.select_by_visible_text("Casas modulares")
+                            logger.info("✅ Producto seleccionado con combo-cont: Casas modulares")
+                            producto_seleccionado = True
+                    
+                    except Exception as e:
+                        logger.warning(f"Estrategia 2 falló: {e}")
                 
-                # Buscar el select subyacente que se activó
-                select_subyacente = self.driver.find_element(
-                    By.CSS_SELECTOR, 
-                    "div.combo-cont select"
-                )
+                # ESTRATEGIA 3: Buscar select por clases exactas del DevTools
+                if not producto_seleccionado:
+                    logger.info("🔍 Estrategia 3: Clases exactas del DevTools...")
+                    try:
+                        select_exacto = self.driver.find_element(
+                            By.CSS_SELECTOR, 
+                            "select.ng-pristine.ng-invalid.ng-touched"
+                        )
+                        
+                        if select_exacto.is_displayed() and select_exacto.is_enabled():
+                            select_obj = Select(select_exacto)
+                            opciones = [opt.text.strip() for opt in select_obj.options]
+                            logger.info(f"📋 Opciones en select exacto: {opciones}")
+                            
+                            if "Casas modulares" in opciones:
+                                select_obj.select_by_visible_text("Casas modulares")
+                                logger.info("✅ Producto seleccionado con clases exactas: Casas modulares")
+                                producto_seleccionado = True
+                            else:
+                                # Intentar por valor como fallback
+                                try:
+                                    select_obj.select_by_value("2: Object")
+                                    logger.info("✅ Producto seleccionado por valor: 2: Object")
+                                    producto_seleccionado = True
+                                except:
+                                    pass
+                    
+                    except Exception as e:
+                        logger.warning(f"Estrategia 3 falló: {e}")
                 
-                # Usar Select de Selenium para seleccionar "Casas modulares"
-                select_obj = Select(select_subyacente)
-                select_obj.select_by_visible_text("Casas modulares")
+                # ESTRATEGIA 4: Click en la opción p.option-selected para activar
+                if not producto_seleccionado:
+                    logger.info("🔍 Estrategia 4: Click en option-selected...")
+                    try:
+                        # Buscar el elemento p.option-selected
+                        option_selected = self.driver.find_element(
+                            By.CSS_SELECTOR, 
+                            "p.option-selected"
+                        )
+                        logger.info("✅ Element option-selected encontrado")
+                        
+                        # Hacer click para abrir el dropdown
+                        self._click_humano(option_selected)
+                        self._espera_humana(1, 2, "abriendo dropdown con option-selected")
+                        
+                        # Ahora intentar seleccionar en el select que se activó
+                        selects_activos = self.driver.find_elements(By.CSS_SELECTOR, "select")
+                        for select_elem in selects_activos:
+                            try:
+                                select_obj = Select(select_elem)
+                                opciones = [opt.text.strip() for opt in select_obj.options]
+                                if "Casas modulares" in opciones:
+                                    select_obj.select_by_visible_text("Casas modulares")
+                                    logger.info("✅ Producto seleccionado después de option-selected: Casas modulares")
+                                    producto_seleccionado = True
+                                    break
+                            except:
+                                continue
+                    
+                    except Exception as e:
+                        logger.warning(f"Estrategia 4 falló: {e}")
                 
-                logger.info("✅ Producto seleccionado: Casas modulares")
+                if not producto_seleccionado:
+                    logger.error("❌ No se pudo seleccionar producto con ninguna estrategia")
+                    
+                    # DEBUG COMPLETO: Mostrar todos los elementos disponibles
+                    try:
+                        logger.info("🔍 DEBUG: Analizando elementos disponibles...")
+                        
+                        # Todos los selects
+                        todos_selects = self.driver.find_elements(By.CSS_SELECTOR, "select")
+                        logger.info(f"📋 Total selects encontrados: {len(todos_selects)}")
+                        
+                        for i, select_elem in enumerate(todos_selects):
+                            try:
+                                clases = select_elem.get_attribute("class")
+                                select_obj = Select(select_elem)
+                                opciones = [opt.text.strip() for opt in select_obj.options]
+                                logger.info(f"📋 Select {i} - Clases: {clases} - Opciones: {opciones}")
+                            except Exception as debug_error:
+                                logger.warning(f"Error debuggeando select {i}: {debug_error}")
+                        
+                        # Todos los form-select
+                        form_selects = self.driver.find_elements(By.CSS_SELECTOR, "form-select")
+                        logger.info(f"📋 Total form-selects: {len(form_selects)}")
+                        
+                        for i, fs in enumerate(form_selects):
+                            try:
+                                label = fs.get_attribute("label")
+                                logger.info(f"📋 Form-select {i} - Label: {label}")
+                            except:
+                                pass
+                                
+                    except Exception as debug_error:
+                        logger.warning(f"Error en debug completo: {debug_error}")
+                    
+                    self.driver.save_screenshot(f"error_select_all_strategies_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+                    raise Exception("No se pudo seleccionar producto después de 4 estrategias específicas")
+                
                 self._espera_humana(3, 5, "esperando que se carguen opciones dependientes")
                 
             except Exception as e:
