@@ -990,100 +990,234 @@ class SalvumAutomacionPrecisa:
             logger.info("🏠 Seleccionando: Casas modulares")
             try:
                 # Esperar a que los selects se carguen completamente
+                self._espera_humana(2, 3, "esperando carga completa de selects")
                 selects = self.wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "select")))
                 if len(selects) >= 1:
                     select_producto = Select(selects[0])  # Primer select de la página
-                    # Intentar diferentes variaciones del texto
-                    opciones_texto = ["Casas modulares", "CASAS MODULARES", "Casas Modulares"]
-                    for texto in opciones_texto:
+                    
+                    # Primero verificar las opciones disponibles
+                    opciones = [option.text for option in select_producto.options]
+                    logger.info(f"📋 Opciones disponibles: {opciones}")
+                    
+                    # Intentar seleccionar "Casas modulares" (texto exacto de la imagen)
+                    try:
+                        select_producto.select_by_visible_text("Casas modulares")
+                        logger.info("✅ Producto seleccionado: Casas modulares")
+                        self._espera_humana(2, 3, "confirmando selección producto")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Error con texto exacto: {e}")
+                        # Intentar por índice (posición 2 según la imagen)
                         try:
-                            select_producto.select_by_visible_text(texto)
-                            logger.info(f"✅ Producto seleccionado: {texto}")
-                            break
-                        except:
-                            continue
-                    self._espera_humana(1, 2, "confirmando selección producto")
+                            select_producto.select_by_index(2)  # "Casas modulares" está en posición 2
+                            logger.info("✅ Producto seleccionado por índice: Casas modulares")
+                            self._espera_humana(2, 3, "confirmando selección por índice")
+                        except Exception as e2:
+                            logger.error(f"❌ No se pudo seleccionar producto: {e2}")
                 else:
-                    logger.warning("⚠️ No se encontraron selects en la página")
+                    logger.error("❌ No se encontraron selects en la página")
             except Exception as e:
-                logger.warning(f"⚠️ No se pudo seleccionar producto: {e}")
+                logger.error(f"❌ Error crítico seleccionando producto: {e}")
+                # Tomar screenshot para debug
+                self.driver.save_screenshot(f"error_select_producto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
             
-            # 2. Valor del producto → primer input[id="import-simple"]
+            # 2. Valor del producto → Buscar y llenar el campo correcto
             logger.info("💰 Llenando Valor del producto...")
             try:
                 monto = int(cliente_data['Monto Financiar Original'])
-                # Esperar a que los campos de monto se carguen
-                campos_monto = self.wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input[id='import-simple'][name='import-simple']")))
-                if len(campos_monto) >= 1:
-                    campo_valor = campos_monto[0]  # Primer campo de monto
-                    # Usar JavaScript para asegurar que el valor se establece
-                    self.driver.execute_script("arguments[0].focus();", campo_valor)
-                    self._espera_humana(0.5, 1, "enfocando campo valor")
-                    self.driver.execute_script("arguments[0].value = '';", campo_valor)
-                    self.driver.execute_script(f"arguments[0].value = '{monto}';", campo_valor)
-                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", campo_valor)
-                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", campo_valor)
-                    logger.info(f"✅ Valor del producto: {monto}")
-                    self._espera_humana(1, 2, "confirmando valor producto")
+                logger.info(f"💵 Monto a usar: {monto}")
+                
+                # Buscar el campo "Valor del producto" de diferentes maneras
+                campo_valor_encontrado = False
+                
+                # Método 1: Buscar por label "Valor del producto"
+                try:
+                    campos_valor = self.driver.find_elements(By.XPATH, "//label[contains(text(), 'Valor del producto')]//following::input[1]")
+                    if campos_valor:
+                        campo_valor = campos_valor[0]
+                        logger.info("✅ Campo valor encontrado por label")
+                        self.driver.execute_script("arguments[0].focus();", campo_valor)
+                        self.driver.execute_script("arguments[0].value = '';", campo_valor)
+                        self.driver.execute_script(f"arguments[0].value = '{monto}';", campo_valor)
+                        self.driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", campo_valor)
+                        self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", campo_valor)
+                        campo_valor_encontrado = True
+                        logger.info(f"✅ Valor del producto llenado: {monto}")
+                except Exception as e:
+                    logger.warning(f"Método 1 falló: {e}")
+                
+                # Método 2: Si el método 1 falla, buscar todos los inputs de tipo texto cerca de "CLP"
+                if not campo_valor_encontrado:
+                    try:
+                        # Buscar inputs que estén cerca del texto "CLP"
+                        campos_clp = self.driver.find_elements(By.XPATH, "//span[text()='CLP']//following::input[1]")
+                        if campos_clp:
+                            campo_valor = campos_clp[0]
+                            logger.info("✅ Campo valor encontrado por CLP")
+                            self.driver.execute_script("arguments[0].focus();", campo_valor)
+                            self.driver.execute_script("arguments[0].value = '';", campo_valor)
+                            self.driver.execute_script(f"arguments[0].value = '{monto}';", campo_valor)
+                            self.driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", campo_valor)
+                            self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", campo_valor)
+                            campo_valor_encontrado = True
+                            logger.info(f"✅ Valor del producto llenado por CLP: {monto}")
+                    except Exception as e:
+                        logger.warning(f"Método 2 falló: {e}")
+                
+                # Método 3: Buscar por atributo placeholder="0"
+                if not campo_valor_encontrado:
+                    try:
+                        campos_zero = self.driver.find_elements(By.CSS_SELECTOR, "input[placeholder='0']")
+                        if campos_zero:
+                            # Tomar el primer campo con placeholder="0" que esté visible
+                            for campo in campos_zero:
+                                if campo.is_displayed():
+                                    campo_valor = campo
+                                    logger.info("✅ Campo valor encontrado por placeholder=0")
+                                    self.driver.execute_script("arguments[0].focus();", campo_valor)
+                                    self.driver.execute_script("arguments[0].value = '';", campo_valor)
+                                    self.driver.execute_script(f"arguments[0].value = '{monto}';", campo_valor)
+                                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", campo_valor)
+                                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", campo_valor)
+                                    campo_valor_encontrado = True
+                                    logger.info(f"✅ Valor del producto llenado por placeholder: {monto}")
+                                    break
+                    except Exception as e:
+                        logger.warning(f"Método 3 falló: {e}")
+                
+                if not campo_valor_encontrado:
+                    logger.error("❌ No se pudo encontrar el campo Valor del producto")
+                
+                self._espera_humana(2, 3, "confirmando valor producto")
+                
             except Exception as e:
-                logger.warning(f"⚠️ No se pudo llenar Valor del producto: {e}")
+                logger.error(f"❌ Error crítico llenando Valor del producto: {e}")
+                self.driver.save_screenshot(f"error_valor_producto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
             
-            # 3. ¿Cuánto quieres solicitar? → segundo input[id="import-simple"]
+            # 3. ¿Cuánto quieres solicitar? → Buscar segundo campo de monto
             logger.info("💵 Llenando Cuánto quieres solicitar...")
             try:
-                campos_monto = self.driver.find_elements(By.CSS_SELECTOR, "input[id='import-simple'][name='import-simple']")
-                if len(campos_monto) >= 2:
-                    campo_solicitar = campos_monto[1]  # Segundo campo de monto
-                    # Usar JavaScript para este campo también
-                    self.driver.execute_script("arguments[0].focus();", campo_solicitar)
-                    self._espera_humana(0.5, 1, "enfocando campo solicitar")
-                    self.driver.execute_script("arguments[0].value = '';", campo_solicitar)
-                    self.driver.execute_script(f"arguments[0].value = '{monto}';", campo_solicitar)
-                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", campo_solicitar)
-                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", campo_solicitar)
-                    logger.info(f"✅ Cuánto solicitar: {monto}")
-                    self._espera_humana(1, 2, "confirmando monto solicitar")
+                # Buscar el segundo campo de monto o campo relacionado
+                campos_solicitar_encontrado = False
+                
+                # Método 1: Buscar por label "Cuánto quieres solicitar"
+                try:
+                    campos_solicitar = self.driver.find_elements(By.XPATH, "//label[contains(text(), 'Cuánto quieres solicitar') or contains(text(), 'quieres solicitar')]//following::input[1]")
+                    if campos_solicitar:
+                        campo_solicitar = campos_solicitar[0]
+                        logger.info("✅ Campo solicitar encontrado por label")
+                        self.driver.execute_script("arguments[0].focus();", campo_solicitar)
+                        self.driver.execute_script("arguments[0].value = '';", campo_solicitar)
+                        self.driver.execute_script(f"arguments[0].value = '{monto}';", campo_solicitar)
+                        self.driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", campo_solicitar)
+                        self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", campo_solicitar)
+                        campos_solicitar_encontrado = True
+                        logger.info(f"✅ Cuánto solicitar llenado: {monto}")
+                except Exception as e:
+                    logger.warning(f"Método 1 solicitar falló: {e}")
+                
+                # Método 2: Buscar todos los campos con id="import-simple" y usar el segundo
+                if not campos_solicitar_encontrado:
+                    try:
+                        campos_import = self.driver.find_elements(By.CSS_SELECTOR, "input[id='import-simple'][name='import-simple']")
+                        if len(campos_import) >= 2:
+                            campo_solicitar = campos_import[1]  # Segundo campo
+                            logger.info("✅ Campo solicitar encontrado como segundo import-simple")
+                            self.driver.execute_script("arguments[0].focus();", campo_solicitar)
+                            self.driver.execute_script("arguments[0].value = '';", campo_solicitar)
+                            self.driver.execute_script(f"arguments[0].value = '{monto}';", campo_solicitar)
+                            self.driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", campo_solicitar)
+                            self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", campo_solicitar)
+                            campos_solicitar_encontrado = True
+                            logger.info(f"✅ Cuánto solicitar llenado como segundo campo: {monto}")
+                    except Exception as e:
+                        logger.warning(f"Método 2 solicitar falló: {e}")
+                
+                if not campos_solicitar_encontrado:
+                    logger.warning("⚠️ No se encontró campo 'Cuánto quieres solicitar', pero puede no ser obligatorio")
+                
+                self._espera_humana(2, 3, "confirmando monto solicitar")
+                
             except Exception as e:
-                logger.warning(f"⚠️ No se pudo llenar Cuánto solicitar: {e}")
+                logger.warning(f"⚠️ Error llenando Cuánto solicitar: {e}")
             
-            # 4. Cuota → Seleccionar "60 cuotas" (segundo select)
+            # 4. Cuota → Seleccionar "60 cuotas" 
             logger.info("📊 Seleccionando Cuota: 60 cuotas")
             try:
+                self._espera_humana(1, 2, "esperando carga de selects de cuota")
                 selects = self.driver.find_elements(By.CSS_SELECTOR, "select")
-                if len(selects) >= 2:
-                    select_cuota = Select(selects[1])  # Segundo select
-                    # Intentar diferentes variaciones
-                    opciones_cuota = ["60 cuotas", "60", "60 CUOTAS"]
-                    for opcion in opciones_cuota:
-                        try:
-                            select_cuota.select_by_visible_text(opcion)
-                            logger.info(f"✅ Cuota seleccionada: {opcion}")
-                            break
-                        except:
-                            continue
-                    self._espera_humana(1, 2, "confirmando cuota")
+                logger.info(f"📋 Total selects encontrados: {len(selects)}")
+                
+                # Buscar el select que contiene opciones de cuotas
+                select_cuota_encontrado = False
+                for i, select_elem in enumerate(selects):
+                    try:
+                        select_obj = Select(select_elem)
+                        opciones = [option.text for option in select_obj.options]
+                        logger.info(f"📋 Select {i}: {opciones}")
+                        
+                        # Verificar si contiene opciones de cuotas
+                        if any("cuota" in opcion.lower() for opcion in opciones):
+                            logger.info(f"✅ Select de cuotas encontrado en posición {i}")
+                            # Intentar seleccionar "60 cuotas"
+                            for opcion in ["60 cuotas", "60", "60 CUOTAS"]:
+                                try:
+                                    select_obj.select_by_visible_text(opcion)
+                                    logger.info(f"✅ Cuota seleccionada: {opcion}")
+                                    select_cuota_encontrado = True
+                                    break
+                                except:
+                                    continue
+                            if select_cuota_encontrado:
+                                break
+                    except Exception as e:
+                        continue
+                
+                if not select_cuota_encontrado:
+                    logger.warning("⚠️ No se pudo seleccionar cuota")
+                    
+                self._espera_humana(1, 2, "confirmando cuota")
             except Exception as e:
-                logger.warning(f"⚠️ No se pudo seleccionar cuota: {e}")
+                logger.warning(f"⚠️ Error seleccionando cuota: {e}")
             
-            # 5. Día de Vencimiento → Seleccionar "2" (tercer select)
+            # 5. Día de Vencimiento → Seleccionar "2"
             logger.info("📅 Seleccionando Día de Vencimiento: 2")
             try:
                 selects = self.driver.find_elements(By.CSS_SELECTOR, "select")
-                if len(selects) >= 3:
-                    select_dia = Select(selects[2])  # Tercer select
+                
+                # Buscar el select que contiene días de vencimiento
+                select_dia_encontrado = False
+                for i, select_elem in enumerate(selects):
                     try:
-                        select_dia.select_by_visible_text("2")
-                        logger.info("✅ Día de vencimiento seleccionado: 2")
-                    except:
-                        # Intentar seleccionar por índice si el texto no funciona
-                        try:
-                            select_dia.select_by_index(1)  # Primera opción después de "Seleccione"
-                            logger.info("✅ Día de vencimiento seleccionado por índice")
-                        except:
-                            pass
-                    self._espera_humana(1, 2, "confirmando día vencimiento")
+                        select_obj = Select(select_elem)
+                        opciones = [option.text for option in select_obj.options]
+                        
+                        # Verificar si contiene números (días)
+                        if any(opcion.strip().isdigit() for opcion in opciones):
+                            logger.info(f"✅ Select de días encontrado en posición {i}: {opciones}")
+                            # Intentar seleccionar "2"
+                            try:
+                                select_obj.select_by_visible_text("2")
+                                logger.info("✅ Día de vencimiento seleccionado: 2")
+                                select_dia_encontrado = True
+                                break
+                            except:
+                                # Si no funciona por texto, intentar por índice
+                                try:
+                                    select_obj.select_by_index(1)  # Primera opción después de "Seleccione"
+                                    logger.info("✅ Día de vencimiento seleccionado por índice")
+                                    select_dia_encontrado = True
+                                    break
+                                except:
+                                    continue
+                    except Exception as e:
+                        continue
+                
+                if not select_dia_encontrado:
+                    logger.warning("⚠️ No se pudo seleccionar día de vencimiento")
+                    
+                self._espera_humana(1, 2, "confirmando día vencimiento")
             except Exception as e:
-                logger.warning(f"⚠️ No se pudo seleccionar día de vencimiento: {e}")
+                logger.warning(f"⚠️ Error seleccionando día de vencimiento: {e}")
             
             # 6. Esperar a que el botón SIMULAR se habilite y hacer click
             logger.info("🔘 Esperando que el botón SIMULAR se habilite...")
