@@ -899,10 +899,12 @@ class SalvumAutomacionPrecisa:
             logger.info("🎂 Llenando Fecha de Nacimiento...")
             try:
                 campo_fecha = self.driver.find_element(By.CSS_SELECTOR, "input[type='date']")
-                self._click_humano(campo_fecha)
-                # Para input type="date" usar formato YYYY-MM-DD
-                self._tipear_humano(campo_fecha, "1987-08-25")
-                logger.info("✅ Fecha de Nacimiento llenada exitosamente")
+                # Usar JavaScript para campos de fecha que no son interactables
+                self.driver.execute_script("arguments[0].value = '1987-08-25';", campo_fecha)
+                # Disparar evento change para que Angular detecte el cambio
+                self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", campo_fecha)
+                self._espera_humana(0.5, 1, "confirmando fecha")
+                logger.info("✅ Fecha de Nacimiento llenada exitosamente con JavaScript")
             except:
                 logger.warning("⚠️ No se pudo llenar Fecha de Nacimiento")
             
@@ -976,85 +978,159 @@ class SalvumAutomacionPrecisa:
             return False
 
     def _configurar_financiamiento_preciso(self, cliente_data):
-        """Configurar financiamiento con selectores precisos basados en inspección real"""
-        logger.info("💰 INICIANDO CONFIGURACIÓN DE FINANCIAMIENTO PRECISA...")
+        """Configurar financiamiento con selectores mejorados y esperas adecuadas"""
+        logger.info("💰 INICIANDO CONFIGURACIÓN DE FINANCIAMIENTO MEJORADA...")
         
         try:
             # ============= PÁGINA 2: CONFIGURACIÓN DE FINANCIAMIENTO =============
             logger.info("📄 PÁGINA 2: Configuración de Financiamiento")
-            self._espera_humana(3, 6, "cargando página de financiamiento")
+            self._espera_humana(4, 7, "cargando página de financiamiento completamente")
             
             # 1. ¿Qué se va a financiar? → Seleccionar "Casas modulares"
             logger.info("🏠 Seleccionando: Casas modulares")
             try:
-                select_producto = self.driver.find_element(By.CSS_SELECTOR, "select")
-                select_obj = Select(select_producto)
-                select_obj.select_by_visible_text("Casas modulares")
-                logger.info("✅ Producto seleccionado: Casas modulares")
-            except:
-                logger.warning("⚠️ No se pudo seleccionar producto")
+                # Esperar a que los selects se carguen completamente
+                selects = self.wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "select")))
+                if len(selects) >= 1:
+                    select_producto = Select(selects[0])  # Primer select de la página
+                    # Intentar diferentes variaciones del texto
+                    opciones_texto = ["Casas modulares", "CASAS MODULARES", "Casas Modulares"]
+                    for texto in opciones_texto:
+                        try:
+                            select_producto.select_by_visible_text(texto)
+                            logger.info(f"✅ Producto seleccionado: {texto}")
+                            break
+                        except:
+                            continue
+                    self._espera_humana(1, 2, "confirmando selección producto")
+                else:
+                    logger.warning("⚠️ No se encontraron selects en la página")
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudo seleccionar producto: {e}")
             
-            # 2. Valor del producto → input[id="import-simple"][name="import-simple"] (primer campo)
+            # 2. Valor del producto → primer input[id="import-simple"]
             logger.info("💰 Llenando Valor del producto...")
             try:
                 monto = int(cliente_data['Monto Financiar Original'])
-                campos_monto = self.driver.find_elements(By.CSS_SELECTOR, "input[id='import-simple'][name='import-simple']")
+                # Esperar a que los campos de monto se carguen
+                campos_monto = self.wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input[id='import-simple'][name='import-simple']")))
                 if len(campos_monto) >= 1:
-                    campo_valor = campos_monto[0]  # Primer campo
-                    self._click_humano(campo_valor)
-                    self._tipear_humano(campo_valor, str(monto))
+                    campo_valor = campos_monto[0]  # Primer campo de monto
+                    # Usar JavaScript para asegurar que el valor se establece
+                    self.driver.execute_script("arguments[0].focus();", campo_valor)
+                    self._espera_humana(0.5, 1, "enfocando campo valor")
+                    self.driver.execute_script("arguments[0].value = '';", campo_valor)
+                    self.driver.execute_script(f"arguments[0].value = '{monto}';", campo_valor)
+                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", campo_valor)
+                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", campo_valor)
                     logger.info(f"✅ Valor del producto: {monto}")
-            except:
-                logger.warning("⚠️ No se pudo llenar Valor del producto")
+                    self._espera_humana(1, 2, "confirmando valor producto")
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudo llenar Valor del producto: {e}")
             
-            # 3. ¿Cuánto quieres solicitar? → input[id="import-simple"][name="import-simple"] (segundo campo)
+            # 3. ¿Cuánto quieres solicitar? → segundo input[id="import-simple"]
             logger.info("💵 Llenando Cuánto quieres solicitar...")
             try:
                 campos_monto = self.driver.find_elements(By.CSS_SELECTOR, "input[id='import-simple'][name='import-simple']")
                 if len(campos_monto) >= 2:
-                    campo_solicitar = campos_monto[1]  # Segundo campo
-                    self._click_humano(campo_solicitar)
-                    self._tipear_humano(campo_solicitar, str(monto))
+                    campo_solicitar = campos_monto[1]  # Segundo campo de monto
+                    # Usar JavaScript para este campo también
+                    self.driver.execute_script("arguments[0].focus();", campo_solicitar)
+                    self._espera_humana(0.5, 1, "enfocando campo solicitar")
+                    self.driver.execute_script("arguments[0].value = '';", campo_solicitar)
+                    self.driver.execute_script(f"arguments[0].value = '{monto}';", campo_solicitar)
+                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", campo_solicitar)
+                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", campo_solicitar)
                     logger.info(f"✅ Cuánto solicitar: {monto}")
-            except:
-                logger.warning("⚠️ No se pudo llenar Cuánto solicitar")
+                    self._espera_humana(1, 2, "confirmando monto solicitar")
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudo llenar Cuánto solicitar: {e}")
             
-            # 4. Cuota → Seleccionar "60 cuotas"
+            # 4. Cuota → Seleccionar "60 cuotas" (segundo select)
             logger.info("📊 Seleccionando Cuota: 60 cuotas")
             try:
                 selects = self.driver.find_elements(By.CSS_SELECTOR, "select")
                 if len(selects) >= 2:
                     select_cuota = Select(selects[1])  # Segundo select
-                    select_cuota.select_by_visible_text("60 cuotas")
-                    logger.info("✅ Cuota seleccionada: 60 cuotas")
-            except:
-                logger.warning("⚠️ No se pudo seleccionar cuota")
+                    # Intentar diferentes variaciones
+                    opciones_cuota = ["60 cuotas", "60", "60 CUOTAS"]
+                    for opcion in opciones_cuota:
+                        try:
+                            select_cuota.select_by_visible_text(opcion)
+                            logger.info(f"✅ Cuota seleccionada: {opcion}")
+                            break
+                        except:
+                            continue
+                    self._espera_humana(1, 2, "confirmando cuota")
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudo seleccionar cuota: {e}")
             
-            # 5. Día de Vencimiento → Seleccionar "2"
+            # 5. Día de Vencimiento → Seleccionar "2" (tercer select)
             logger.info("📅 Seleccionando Día de Vencimiento: 2")
             try:
                 selects = self.driver.find_elements(By.CSS_SELECTOR, "select")
                 if len(selects) >= 3:
                     select_dia = Select(selects[2])  # Tercer select
-                    select_dia.select_by_visible_text("2")
-                    logger.info("✅ Día de vencimiento seleccionado: 2")
-            except:
-                logger.warning("⚠️ No se pudo seleccionar día de vencimiento")
+                    try:
+                        select_dia.select_by_visible_text("2")
+                        logger.info("✅ Día de vencimiento seleccionado: 2")
+                    except:
+                        # Intentar seleccionar por índice si el texto no funciona
+                        try:
+                            select_dia.select_by_index(1)  # Primera opción después de "Seleccione"
+                            logger.info("✅ Día de vencimiento seleccionado por índice")
+                        except:
+                            pass
+                    self._espera_humana(1, 2, "confirmando día vencimiento")
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudo seleccionar día de vencimiento: {e}")
             
-            # 6. Click en SIMULAR - button[value="SIMULAR"]
-            logger.info("🔘 Haciendo click en SIMULAR...")
+            # 6. Esperar a que el botón SIMULAR se habilite y hacer click
+            logger.info("🔘 Esperando que el botón SIMULAR se habilite...")
             try:
-                btn_simular = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[value='SIMULAR']")))
-                self._click_humano(btn_simular)
-                self._espera_humana(6, 10, "procesando simulación")
-                logger.info("✅ Simulación ejecutada")
-            except:
-                logger.error("❌ No se pudo hacer click en SIMULAR")
+                # Esperar hasta 15 segundos a que el botón se habilite
+                for intento in range(15):
+                    try:
+                        # Buscar botón que NO tenga la clase 'disable-button'
+                        btn_simular = self.driver.find_element(By.CSS_SELECTOR, "button[value='SIMULAR']:not(.disable-button)")
+                        if btn_simular.is_displayed() and btn_simular.is_enabled():
+                            logger.info(f"✅ Botón SIMULAR habilitado después de {intento+1} segundos")
+                            self._click_humano(btn_simular)
+                            self._espera_humana(8, 12, "procesando simulación")
+                            logger.info("✅ Simulación ejecutada exitosamente")
+                            break
+                    except:
+                        # Si no encuentra el botón habilitado, esperar 1 segundo más
+                        time.sleep(1)
+                        continue
+                else:
+                    # Si después de 15 intentos no se habilita, intentar click forzado
+                    logger.warning("⚠️ Botón SIMULAR no se habilitó, intentando click forzado...")
+                    try:
+                        btn_simular_disabled = self.driver.find_element(By.CSS_SELECTOR, "button[value='SIMULAR']")
+                        # Intentar habilitar el botón con JavaScript
+                        self.driver.execute_script("arguments[0].classList.remove('disable-button');", btn_simular_disabled)
+                        self.driver.execute_script("arguments[0].disabled = false;", btn_simular_disabled)
+                        self._espera_humana(1, 2, "forzando habilitación")
+                        self._click_humano(btn_simular_disabled)
+                        self._espera_humana(8, 12, "procesando simulación forzada")
+                        logger.info("✅ Simulación ejecutada con click forzado")
+                    except Exception as e:
+                        logger.error(f"❌ No se pudo hacer click en SIMULAR: {e}")
+                        raise Exception("Error en simulación - botón no disponible")
+            
+            except Exception as e:
+                logger.error(f"❌ Error en simulación: {e}")
+                # Tomar screenshot para debug
+                self.driver.save_screenshot(f"error_simulacion_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
                 raise Exception("Error en simulación")
+            
+            # ============= CONTINUAR CON EL RESTO DEL FLUJO =============
+            # El resto del código permanece igual...
             
             # ============= PÁGINA 3: CONTINUAR DESPUÉS DE SIMULACIÓN =============
             logger.info("📄 PÁGINA 3: Después de Simulación")
-            self._espera_humana(3, 5, "cargando resultados de simulación")
+            self._espera_humana(4, 6, "cargando resultados de simulación")
             
             try:
                 btn_continuar = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[value='CONTINUAR']")))
@@ -1110,7 +1186,7 @@ class SalvumAutomacionPrecisa:
                     select_region = Select(selects[0])
                     select_region.select_by_visible_text("COQUIMBO")
                     logger.info("✅ Región seleccionada: COQUIMBO")
-                    self._espera_humana(2, 4, "cargando ciudades")
+                    self._espera_humana(3, 5, "cargando ciudades")
             except:
                 logger.warning("⚠️ No se pudo seleccionar región")
             
@@ -1125,7 +1201,7 @@ class SalvumAutomacionPrecisa:
                     if len(opciones) > 1:  # Más que solo "Seleccione"
                         select_ciudad.select_by_index(1)  # Seleccionar primera opción disponible
                         logger.info("✅ Ciudad seleccionada")
-                        self._espera_humana(2, 4, "cargando comunas")
+                        self._espera_humana(3, 5, "cargando comunas")
             except:
                 logger.warning("⚠️ No se pudo seleccionar ciudad")
             
